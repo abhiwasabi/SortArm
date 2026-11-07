@@ -1,0 +1,13 @@
+{
+  "poses": {
+    "home": null,
+    "above_pick": null,
+    "pick": null,
+    "above_recycle": null,
+    "above_trash": null
+  },
+  "gripper": {
+    "open": null,
+    "closed": null
+  }
+}

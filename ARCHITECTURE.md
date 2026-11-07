@@ -1,0 +1,122 @@
+# Architecture
+
+One-page map of the SharkByte 2026 robotic waste sorter, for teammates and their AI agents. [PLAN.md](PLAN.md) has the goals and build order, and [AGENTS.md](AGENTS.md) has the team rules. Each issue holds its own task details. When this file and an issue disagree, ask on the [Message Board](https://github.com/abhiwasabi/sharkbyte-2026/issues/1) and fix whichever is wrong.
+
+## System
+
+```text
+ fixed overhead camera
+         │ frames
+         ▼
+ ┌──────────────────────────── laptop ─────────────────────────────┐
+ │                                                                 │
+ │  vision (#14)              bridge / app state (#16)             │
+ │  predict(frame) ─────────► capture loop, bin decision gate, ────┼──► dashboard (#15, web/)
+ │  label, confidence, bin    counts, /api/* server                │    GET /api/state
+ │                                 │  arm.home() / arm.sort(bin)   │    GET /api/frame.jpg
+ │                                 │  arm.stop()                   │    POST /api/stop
+ │                                 ▼                               │
+ │                            arm/ ArmController (#20)             │
+ │                            states READY BUSY DONE ERROR         │
+ └─────────────────────────────────┬───────────────────────────────┘
+                                   │ USB (LeRobot, Feetech protocol)
+                                   ▼
+                   Waveshare bus-servo board ── servo power supply
+                                   │ daisy-chained 3-wire bus
+                                   ▼
+        SO-101 follower arm: 6 × Feetech STS3215 (IDs 1–6) ──► item into bin
+
+ ESP32-S3 (#13, PROPOSED, pending agreement on #1): physical STOP button + status LED,
+ sends "STOP\n" to the laptop over USB serial. It does not drive the servos.
+```
+
+## Owners and folders
+
+| Area | Folder | Owner | Issue |
+| --- | --- | --- | --- |
+| Arm hardware: SO-101 print, assembly, pickup and bin layout | (photos, notes, poses) | @PaulPio | #12 |
+| Arm control on the laptop | `arm/` | @PaulPio | #20 |
+| Servo power, wiring, physical stop, ESP32-S3 extras | TBD | @yusufdirdis | #13 |
+| Camera and YOLO `predict(frame)` | TBD | @abhiwasabi | #14 |
+| Dashboard | `web/` | @abhiwasabi | #15 |
+| Bridge, app state, `/api/*` server | TBD | @anaoliveira01 | #16 |
+| End-to-end trials, submission | — | @anaoliveira01 | #17 |
+
+## Contracts
+
+Change these only after posting on the Message Board and getting agreement from the people they affect.
+
+### Vision → bridge (#14 → #16)
+
+`predict(frame)` returns `label` (string), `confidence` (0–1), and `bin` (`"RECYCLE"`, `"TRASH"`, or `None`). With no detection or low confidence it returns `label="UNKNOWN"` and `bin=None`. Current sample items: bottle and snack wrapper (sizes not yet measured).
+
+### Bridge → arm (#16 → #20)
+
+Use either form; both have identical behavior.
+
+**In-process (recommended):**
+
+```python
+from arm import ArmConfig, ArmController, So101Backend, MockBackend, load_poses
+
+config = ArmConfig.from_env()                    # ARM_PORT=COM5, etc.
+arm = ArmController(So101Backend(config), load_poses(config.poses_path), config)
+arm.on_state(lambda state, detail: ...)          # state is ArmState.READY/BUSY/DONE/ERROR
+arm.home()               # -> bool accepted
+arm.sort("RECYCLE")      # -> bool accepted; arm.last_rejection says why not
+arm.stop()               # always accepted
+arm.state, arm.detail    # current state and reason
+arm.poll()               # call ~1/s: checks the arm answers; returns arm.connected
+arm.last_done            # (sequence number, "SORT RECYCLE") of the last completed command
+```
+
+**Behavior the bridge can rely on:**
+
+| Question | Answer |
+| --- | --- |
+| Do `home()` / `sort()` block? | No. They return at once: `True` means accepted and the arm is already `BUSY`; `False` means rejected (reason in `arm.last_rejection`) and nothing moved. Motion runs on the controller's worker thread. |
+| How does STOP interrupt a move? | `stop()` can be called from any thread at any time, including mid-sort. The move checks for it every control step (20 ms), sets the goal to the present position so the arm holds, and reports `ERROR` with detail `"stopped"`. `stop()` returns after that, typically within about 20 ms. The rest of the sequence is cancelled; a stopped SORT never reports `DONE`. |
+| How does DONE become READY? | When the last step finishes, the controller reports `DONE` (detail = the command) and then immediately `READY`. DONE is momentary, so do not wait to poll it. |
+| How is connection loss shown? | `arm.connected` becomes `False` and the arm enters `ERROR` with detail `"connection lost: …"`. A move detects this itself. While idle, `arm.poll()` detects it; `poll()` never touches the bus during a move. If the arm answers again, `poll()` sets `connected` back to `True`, but the state stays `ERROR` until HOME. After a USB unplug, restart the bridge so LeRobot reopens the port. Map `connected` to `/api/state.connected`. |
+| How do I count each completed command exactly once? | `on_state` is called with `(ArmState.DONE, "SORT RECYCLE")` exactly once per completed command; count the bin there. If you poll instead, count when `arm.last_done[0]` increases. |
+| Which thread calls `on_state` listeners? | The controller's worker thread (or the caller's thread for STOP while idle). Keep listeners short: update the bridge state under its own lock and return. |
+
+**Subprocess:** run `python -m arm.cli` (or `--mock`). Write `HOME`, `SORT RECYCLE`, `SORT TRASH`, or `STOP` lines to its stdin. It prints exactly one state word per line on stdout and writes `#` notes, including rejection reasons, to stderr.
+
+**Arm state machine:**
+
+```text
+ start ──► ERROR ("not homed") ──HOME──► BUSY ──► DONE ──► READY
+ READY ──SORT <bin>──► BUSY ──► DONE ──► READY
+ BUSY  ──STOP──► ERROR ("stopped", arm holds position) ──HOME──► BUSY ──► … READY
+ BUSY  ──motion fault──► ERROR (arm holds position) ──HOME──► …
+ any   ──connection lost──► ERROR, connected=False ──(arm answers again) poll()──► connected=True ──HOME──► …
+```
+
+- SORT is accepted only in READY and only for a known bin. HOME is accepted unless the arm is BUSY. A rejected command never moves the arm.
+- The `DONE` callback's `detail` is the finished command (e.g. `"SORT RECYCLE"`). Count an item only on that DONE.
+- Unknown or low-confidence predictions must never call `sort()`. The bridge decides; the arm only checks the bin name.
+- With `MockBackend` (or `--mock`), the bridge works with no hardware.
+
+### Bridge → dashboard (#16 → #15)
+
+`GET /api/state` returns `label`, `confidence`, `bin`, `arm_state` (READY/BUSY/DONE/ERROR), `connected`, and `counts` (`{"RECYCLE": n, "TRASH": n}`). It may include an optional `prediction_at` (ISO 8601). `GET /api/frame.jpg` returns the latest frame. `POST /api/stop` must call `arm.stop()`. Full example: `web/README.md` (PR #19).
+
+## Hardware
+
+- **Arm:** [SO-101 follower](https://github.com/TheRobotStudio/SO-ARM100), printed in PLA+. Joints and Feetech IDs: 1 `shoulder_pan`, 2 `shoulder_lift`, 3 `elbow_flex`, 4 `wrist_flex`, 5 `wrist_roll`, 6 `gripper`.
+- **Servos:** STS3215 (7.4 V version runs on the 5 V supply; the 12 V version needs a 12 V 5 A+ supply). Each servo's ID must be set **before assembly** with `lerobot-setup-motors`.
+- **Controller:** Waveshare bus-servo board → laptop over USB-C. Servo power comes from its own supply, not USB.
+- **Software:** Python 3.12, [LeRobot](https://github.com/huggingface/lerobot) `0.7.0` (`lerobot[feetech]`), which handles the bus, calibration, PID settings, and the gripper torque limit (50%).
+
+## Safety rules (all code)
+
+1. A rejected or unknown command never moves the arm.
+2. STOP is always accepted. It cancels motion within one control step (20 ms) and **holds** position; it does not drop the arm. Only HOME leaves ERROR.
+3. Moves are slow by default (20 °/s) and interpolated. LeRobot also caps any single body-joint step at 10 °.
+4. Any motion failure holds position and reports ERROR. Nothing retries automatically.
+5. During testing, keep a hand on the servo power switch. Exiting the arm programs turns torque off, so the arm goes limp: end at rest or support it.
+
+## Setup order
+
+1. Set servo IDs (before assembly) → 2. assemble → 3. `lerobot-calibrate` → 4. teach poses (`python -m arm.teach`) → 5. bench test (`python -m arm.cli`) → 6. connect the bridge → 7. connect vision. Details are in [arm/README.md](arm/README.md).
