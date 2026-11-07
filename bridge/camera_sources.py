@@ -270,6 +270,8 @@ class CameraSourceManager:
                 self.url = new_url
                 self.index = new_index
                 self.last_capture_ok = True
+                with self.bridge.lock:
+                    self.bridge.camera_device_id = device_id if name == 'usb' else None
                 self.bridge.set_camera_source(name, new_url, index=new_index,
                                               vision_ready=name != 'off' and (name == 'mock' or self.predictor is not None))
                 if name == 'off':

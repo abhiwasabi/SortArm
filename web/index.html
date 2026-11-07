@@ -137,15 +137,16 @@
         </form>
         <div id="cameraSourceCard" class="settings-card camera-source-card" hidden>
           <div class="camera-source-heading"><div><p class="small-label">CAMERA INPUT</p><h2>Choose a camera</h2></div><span id="cameraSourceStatus" class="camera-source-status" role="status">Checking connection</span></div>
-          <label for="cameraSourceSelect">Source</label>
+          <label for="cameraSourceSelect">Camera</label>
           <select id="cameraSourceSelect" disabled>
-            <option value="usb">Laptop or USB camera</option>
-            <option value="esp32">ESP32-S3 camera</option>
+            <option value="usb">Laptop webcam</option>
+            <option value="esp32">ESP32</option>
+            <option value="iphone">iPhone camera</option>
           </select>
           <div id="usbCameraFields" class="camera-source-fields" hidden>
-            <label for="usbCameraDevice">Camera device</label>
-            <select id="usbCameraDevice"><option value="">Loading cameras…</option></select>
-            <p>Select MacBook Air Camera to use this laptop's built-in webcam.</p>
+            <input id="usbCameraDevice" type="hidden" value="">
+            <button id="refreshCameraDevices" class="control-button" type="button">Refresh camera list</button>
+            <p id="cameraDeviceHelp" role="status">Choose your webcam by name.</p>
           </div>
           <div id="esp32CameraFields" class="camera-source-fields" hidden>
             <label for="esp32CameraUrl">JPEG snapshot URL</label>

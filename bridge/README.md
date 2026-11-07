@@ -125,3 +125,11 @@ confirmed sort it shows the last sorted item while waiting for an empty pickup a
 The UI displays EMPTY as Unknown item; the backend still uses empty-area detection to
 prevent duplicate sorts. Simulated arm mode remains explicitly labeled and does not
 operate physical hardware.
+
+Camera selection uses one dropdown: Laptop webcam, ESP32, or iPhone camera. Laptop and
+iPhone choices resolve automatically to distinct device IDs; missing devices disable
+connection rather than falling back to a different camera. Refresh camera list retries
+discovery. On macOS, discovery opts the Python process into Continuity Camera without
+editing the global Python Info.plist. Connect/trust the iPhone and enable Continuity
+Camera before refreshing. `/api/state.camera_device_id` identifies the active named
+webcam so reloading the UI can restore the correct camera category.

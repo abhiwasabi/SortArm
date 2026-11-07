@@ -46,9 +46,9 @@ class Handler(SimpleHTTPRequestHandler):
         path = urlsplit(self.path).path
         if path == '/api/cameras':
             try:
-                from cv2_enumerate_cameras import enumerate_cameras
+                from .camera_devices import enumerate_camera_devices
                 devices = [{'id': d.path, 'name': d.name, 'index': d.index}
-                           for d in enumerate_cameras() if d.path]
+                           for d in enumerate_camera_devices() if d.path]
                 return self.send_json(200, {'devices': devices})
             except Exception:
                 return self.send_json(503, {'error': 'Camera list unavailable. Check webcam dependencies.'})
