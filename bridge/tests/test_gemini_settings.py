@@ -8,7 +8,8 @@ from bridge.gemini_settings import connect_gemini, disconnect_gemini, gemini_sta
 
 class GeminiSettingsTests(unittest.TestCase):
     def setUp(self):
-        self.bridge = SimpleNamespace(lock=threading.RLock(), enabled=True, auto_sort_armed=False, vision_ready=False,
+        self.bridge = SimpleNamespace(lock=threading.RLock(), enabled=True, auto_sort_armed=False,
+                                      home_confirmed=False, vision_ready=False,
                                       last_evaluated_frame=None, invalidate=lambda message: None)
         self.manager = SimpleNamespace(bridge=self.bridge, predictor=None, name='esp32')
         self.key = 'test-secret-key-do-not-expose'
@@ -34,6 +35,7 @@ class GeminiSettingsTests(unittest.TestCase):
     @patch('bridge.gemini_settings.urllib.request.urlopen')
     def test_connect_resumes_armed_simulated_sorting(self, request):
         self.bridge.auto_sort_armed = True
+        self.bridge.home_confirmed = True
         request.side_effect = [self.response(), io.BytesIO(b'{"candidates":[{"content":{"parts":[{"text":"OK"}]}}]}')]
         connect_gemini(self.manager, {'key': self.key})
         self.assertTrue(self.bridge.enabled)
