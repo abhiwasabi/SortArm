@@ -102,10 +102,12 @@ export function derivePrediction(state, options = {}) {
       note: "Waiting for the first prediction." };
   }
   if (state.awaitingClear) {
-    const last = state.recentSorts?.[0];
-    return { kind: "completed", label: last?.label || "Item sorted", confidence: null, bin: null,
-      note: last ? `Sorted to ${last.bin.toLowerCase()}. Remove the item and leave the pickup area empty before showing the next item.`
-        : "Sort requested. Remove the item after the sort finishes, then show the next item." };
+    const fresh = state.predictionAt !== null && now - state.predictionAt <= staleAfterMs;
+    const known = fresh && !["UNKNOWN", "EMPTY"].includes(state.label.toUpperCase());
+    return { kind: "completed", label: known ? state.label : "Checking pickup area…",
+      confidence: known ? state.confidence : null, bin: null,
+      note: known ? "Latest camera result. Next sort is waiting for an empty pickup area; remove all items briefly before presenting the next one."
+        : "Waiting for Gemini to confirm the pickup area is empty. The previous sort is saved in history." };
   }
   if (state.bridgeAvailable && state.predictionAt === null && state.label.toUpperCase() === "UNKNOWN") {
     return { kind: "waiting", label: state.sortingEnabled ? "Identifying item…" : "Recognition paused",

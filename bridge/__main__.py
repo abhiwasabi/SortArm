@@ -65,6 +65,7 @@ def main():
     def prediction_loop():
         while not shutdown.is_set():
             ticket = bridge.begin_prediction()
+            delay = 0.1
             if ticket:
                 try:
                     result = camera.predict(ticket)
@@ -74,7 +75,8 @@ def main():
                     message = prediction_error_message(exc)
                     print(message, flush=True)
                     bridge.prediction_failed(ticket, message)
-            shutdown.wait(1.5)
+                    delay = 1.5  # Back off on failures; successful requests need no extra pause.
+            shutdown.wait(delay)
 
     def poll_loop():
         while not shutdown.wait(1):

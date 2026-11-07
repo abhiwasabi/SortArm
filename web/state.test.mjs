@@ -149,7 +149,18 @@ test('completed sort waits for clear instead of claiming identification is pendi
     recent_sorts:[{id:'one',label:'Plastic bottle',bin:'PLASTIC',completed_at:new Date().toISOString()}]});
   const result = derivePrediction(state, {backendOnline:true, cameraOnline:true});
   assert.equal(result.kind, 'completed');
-  assert.equal(result.label, 'Plastic bottle');
-  assert.match(result.note, /Remove the item/);
+  assert.equal(result.label, 'Checking pickup area…');
+  assert.match(result.note, /pickup area is empty/);
   assert.equal(result.bin, null);
+});
+
+test('fresh plastic result replaces old metal label while duplicate-sort protection is active', () => {
+  const now = Date.now();
+  const state = normalizeState({label:'Plastic bottle', bin:'PLASTIC', prediction_at:new Date(now).toISOString(),
+    awaiting_clear:true, sorting_enabled:true,
+    recent_sorts:[{id:'can',label:'Metal can',bin:'METAL',completed_at:new Date(now-1000).toISOString()}]});
+  const result = derivePrediction(state, {backendOnline:true,cameraOnline:true,now});
+  assert.equal(result.label,'Plastic bottle');
+  assert.equal(result.bin,null);
+  assert.match(result.note,/waiting for an empty pickup area/);
 });

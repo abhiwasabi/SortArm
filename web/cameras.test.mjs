@@ -11,7 +11,7 @@ function harness() {
   document.getElementById('usbCameraDevice').value='old-device';
   const context = vm.createContext({document, location:{search:''}, URLSearchParams,AbortController,Event,chooseCameraDevice,
     setTimeout:()=>1, clearTimeout(){}, fetch:(url)=>new Promise(resolve=>pending.push({url,resolve}))});
-  const code=readFileSync(new URL('./cameras.mjs',import.meta.url),'utf8').replace(/^import .*\n/,'');
+  const code=readFileSync(new URL('./cameras.mjs',import.meta.url),'utf8').replace(/^import .*\r?\n/,'');
   vm.runInContext(code,context);
   return {nodes,pending};
 }
