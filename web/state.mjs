@@ -1,5 +1,6 @@
 const ARM_STATES = new Set(["READY", "BUSY", "DONE", "ERROR"]);
 const BINS = new Set(["RECYCLE", "TRASH"]);
+const HISTORY_LIMIT = 20;
 
 function nonnegativeCount(value) {
   return Number.isInteger(value) && value >= 0 ? value : null;
@@ -9,6 +10,27 @@ function predictionTime(value) {
   if (typeof value !== "string" || value.trim() === "") return null;
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function completedSorts(value) {
+  if (!Array.isArray(value)) return null;
+  const seen = new Set();
+  const rows = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const id = typeof entry.id === "string" || Number.isSafeInteger(entry.id)
+      ? String(entry.id).trim().slice(0, 80) : "";
+    const label = typeof entry.label === "string" ? entry.label.trim().slice(0, 80) : "";
+    const bin = typeof entry.bin === "string" ? entry.bin.toUpperCase() : "";
+    const completedAt = typeof entry.completed_at === "string" ? entry.completed_at.trim() : "";
+    const completedMs = Date.parse(completedAt);
+    if (!id || seen.has(id) || !label || label.toUpperCase() === "UNKNOWN" ||
+        !BINS.has(bin) || !Number.isFinite(completedMs)) continue;
+    seen.add(id);
+    rows.push({ id, label, bin, completedAt: new Date(completedMs).toISOString(), completedMs });
+  }
+  return rows.sort((a, b) => b.completedMs - a.completedMs).slice(0, HISTORY_LIMIT)
+    .map(({ completedMs, ...entry }) => entry);
 }
 
 export function normalizeState(raw) {
@@ -43,7 +65,8 @@ export function normalizeState(raw) {
       RECYCLE: nonnegativeCount(rawCounts.RECYCLE ?? rawCounts.recycle),
       TRASH: nonnegativeCount(rawCounts.TRASH ?? rawCounts.trash)
     },
-    predictionAt: predictionTime(raw.prediction_at ?? raw.timestamp)
+    predictionAt: predictionTime(raw.prediction_at ?? raw.timestamp),
+    recentSorts: completedSorts(raw.recent_sorts)
   };
 }
 

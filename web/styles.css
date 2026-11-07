@@ -24,6 +24,7 @@ body { margin: 0; background: var(--page); color: var(--text); font-family: var(
 button { font: inherit; }
 button:focus-visible, a:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
 [hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 #overview, #camera, #arm, #bins, #settings, #cameraView, #armView, #binsView { scroll-margin-top: 118px; }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 244px minmax(0, 1fr); }
@@ -127,6 +128,23 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
 .bin-card > div span { color: var(--muted); font-size: 11px; }
 .bin-card strong { font-size: 32px; font-weight: 720; line-height: 1; letter-spacing: -.04em; }
 .bin-card small { color: var(--subtle); font-size: 10px; }
+.sort-history { margin-top: 24px; padding-top: 21px; border-top: 1px solid #dce2db; }
+.history-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+.history-heading .small-label { margin-bottom: 5px; }
+.history-heading h3 { margin: 0; font-size: 18px; font-weight: 710; letter-spacing: -.03em; }
+.history-status { padding: 7px 10px; border-radius: 20px; background: #e8ebe6; color: #66736a; font-size: 10px; font-weight: 750; letter-spacing: .04em; white-space: nowrap; }
+.history-status[data-tone="live"] { color: var(--sage); background: #e0eddf; }
+.history-status[data-tone="sample"] { color: var(--amber); background: var(--amber-bg); }
+.history-status[data-tone="offline"] { color: var(--red); background: var(--red-bg); }
+.history-message { margin: 0; padding: 17px 19px; border-radius: 17px; background: white; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.history-list { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.history-row { min-width: 0; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto auto; align-items: center; gap: 13px; min-height: 64px; padding: 11px 17px; border-radius: 17px; background: white; }
+.history-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; background: var(--sage-bg); color: var(--sage); font-size: 18px; }
+.history-icon[data-bin="TRASH"] { background: #f6ece7; color: #a66f5d; }
+.history-item { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 690; }
+.history-bin { padding: 7px 9px; border-radius: 20px; background: var(--sage-bg); color: var(--sage); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.history-bin[data-bin="TRASH"] { background: #f6ece7; color: #a66f5d; }
+.history-time { min-width: 92px; color: var(--muted); font-size: 11px; text-align: right; white-space: nowrap; }
 
 .detail-heading { margin: 3px 0 22px; }
 .detail-heading .small-label { margin-bottom: 8px; }

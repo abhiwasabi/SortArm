@@ -73,7 +73,19 @@
           </div>
         </section>
 
-        <section class="totals" id="bins" aria-labelledby="totalsTitle"><div class="totals-heading"><p class="small-label">COMPLETED SORTS</p><h2 id="totalsTitle">Bin totals</h2><p>Counts update only after the arm reports a completed drop.</p></div><div class="bin-grid"><div class="bin-card recycle-card"><span class="bin-symbol" aria-hidden="true">↻</span><div><span>Recycle bin</span><strong id="recycleCount">—</strong><small>Completed drops</small></div></div><div class="bin-card trash-card"><span class="bin-symbol" aria-hidden="true">▥</span><div><span>Trash bin</span><strong id="trashCount">—</strong><small>Completed drops</small></div></div></div></section>
+        <section class="totals" id="bins" aria-labelledby="totalsTitle">
+          <div class="totals-heading"><p class="small-label">COMPLETED SORTS</p><h2 id="totalsTitle">Bin totals</h2><p>Counts update only after the arm reports a completed drop.</p></div>
+          <div class="bin-grid">
+            <div class="bin-card recycle-card"><span class="bin-symbol" aria-hidden="true">↻</span><div><span>Recycle bin</span><strong id="recycleCount">—</strong><small>Completed drops</small></div></div>
+            <div class="bin-card trash-card"><span class="bin-symbol" aria-hidden="true">▥</span><div><span>Trash bin</span><strong id="trashCount">—</strong><small>Completed drops</small></div></div>
+          </div>
+          <section class="sort-history" aria-labelledby="historyTitle">
+            <div class="history-heading"><div><p class="small-label">SORT LOG</p><h3 id="historyTitle">Recent sorts</h3></div><span id="historyStatus" class="history-status" data-tone="waiting">WAITING</span></div>
+            <p id="historyMessage" class="history-message">Waiting for completed sorts.</p>
+            <ol id="sortHistory" class="history-list" hidden></ol>
+            <p id="historyAnnouncement" class="sr-only" role="status" aria-live="polite"></p>
+          </section>
+        </section>
       </div>
 
       <section id="cameraView" class="detail-view" aria-labelledby="cameraViewTitle" hidden>
@@ -90,7 +102,7 @@
 
       <section id="binsView" class="detail-view" aria-labelledby="binsViewTitle" hidden>
         <div class="detail-heading"><p class="small-label">COMPLETED SORTS</p><h1 id="binsViewTitle">Bin totals</h1><p>Track confirmed drops into each bin.</p></div>
-        <p class="preview-detail-note" hidden>Sample counts. No physical drops have been recorded.</p>
+        <p class="preview-detail-note" hidden>Sample counts and history. No physical drops have been recorded.</p>
         <div class="detail-surface"><div id="binsMount" class="detail-mount"></div></div>
       </section>
 
