@@ -3,7 +3,7 @@
 ## Team
 
 - @abhiwasabi — Abhi, team lead
-- @paulpio — teammate
+- @PaulPio — teammate
 - @anaoliveira01 — teammate
 - @yusufdirdis — teammate
 
@@ -19,14 +19,14 @@ The pinned **Message Board** issue is for short coordination messages between pe
 
 ## Work ownership
 
-Initial SignSpeak assignments are below; adjust them together at kickoff if needed. The team lead resolves overlapping assignments. Ask on the board before editing another person's area. Read [PLAN.md](PLAN.md) for the MVP and interface contract.
+The agreed SignSpeak assignments are below. Post handoffs or scope changes on the board. The team lead resolves overlapping assignments. Ask on the board before editing another person's area. Read [PLAN.md](PLAN.md) for the MVP and interface contract.
 
 | Area or folder | Owner | Notes |
 | --- | --- | --- |
-| Integration, API, demo, submission | @abhiwasabi | `server/`, `scripts/`, `docs/`, `PLAN.md` |
-| Camera and printed mount | @PaulPio | `firmware/`, `hardware/` |
-| Selected-sign recognition | @anaoliveira01 | `recognition/` |
-| Web app, UI, text to speech | @yusufdirdis | `web/` |
+| Camera stream and firmware | @PaulPio | `firmware/camera/` |
+| ESP32-S3 status device and 3D printed rig | @yusufdirdis | `firmware/status/`, `hardware/` |
+| Selected-sign recognition, web app, UI, text to speech | @abhiwasabi | `recognition/`, `web/` |
+| Integration, API, testing, demo and submission coordination | @anaoliveira01 | `server/`, `scripts/`, `docs/`, `PLAN.md` |
 
 ## Git workflow
 
