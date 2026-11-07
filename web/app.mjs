@@ -9,6 +9,8 @@ const BIN_DISPLAY = {
 
 const byId = (id) => document.getElementById(id);
 const ui = {
+  toggleCameraButton: byId("toggleCameraButton"),
+  stopCameraSettings: byId("stopCameraSettings"),
   runtimeMode: byId("runtimeMode"),
   bridgeControls: byId("bridgeControls"),
   bridgeStatus: byId("bridgeStatus"),
@@ -16,11 +18,16 @@ const ui = {
   sortingButton: byId("sortingButton"),
   mockControls: byId("mockControls"),
   mockScenario: byId("mockScenario"),
+  cameraSourceCard: byId("cameraSourceCard"),
+  cameraSourceSelect: byId("cameraSourceSelect"),
+  usbCameraFields: byId("usbCameraFields"),
+  usbCameraDevice: byId("usbCameraDevice"),
+  esp32CameraFields: byId("esp32CameraFields"),
+  esp32CameraUrl: byId("esp32CameraUrl"),
+  applyCameraButton: byId("applyCameraButton"),
+  cameraSourceStatus: byId("cameraSourceStatus"),
+  cameraSourceError: byId("cameraSourceError"),
   overviewSubtitle: byId("overviewSubtitle"),
-  backendHealth: byId("backendHealth"),
-  backendStatus: byId("backendStatus"),
-  armHealth: byId("armHealth"),
-  controllerStatus: byId("controllerStatus"),
   cameraHealth: byId("cameraHealth"),
   cameraStatus: byId("cameraStatus"),
   previewSettingsNote: byId("previewSettingsNote"),
@@ -46,9 +53,11 @@ const ui = {
 
 const previewMode = new URLSearchParams(window.location.search).get("demo") === "1";
 const POLL_MS = 1200;
+const FRAME_POLL_MS = 100;
 const RETRY_MS = 3000;
 const REQUEST_TIMEOUT_MS = 3000;
-const FRAME_STALE_MS = 4500;
+const FRAME_REQUEST_TIMEOUT_MS = 6500;
+const FRAME_STALE_MS = 10000;
 const STOP_CONFIRM_TIMEOUT_MS = 5000;
 let snapshot = null;
 let backendOnline = false;
@@ -56,6 +65,8 @@ let cameraOnline = false;
 let lastFrameAt = null;
 let stopPending = false;
 let controlPending = false;
+let cameraChangePending = false;
+let cameraSelectionDirty = false;
 let awaitingStopState = false;
 let stopRequestedAt = null;
 let frameRequestAt = null;
@@ -84,6 +95,42 @@ function setNotice(message, tone = "info") {
 function showFrame(available) {
   ui.cameraFrame.hidden = !available;
   ui.frameFallback.hidden = available;
+}
+
+function renderCameraSource(usableCamera) {
+  ui.cameraSourceCard.hidden = previewMode;
+  if (previewMode) return;
+  const available = backendOnline && snapshot?.bridgeAvailable;
+  const cameraOff = snapshot?.cameraSource === "off";
+  ui.toggleCameraButton.textContent = cameraOff ? "Start camera" : "Stop camera";
+  ui.toggleCameraButton.hidden = previewMode;
+  ui.toggleCameraButton.disabled = !available || cameraChangePending;
+  ui.stopCameraSettings.hidden = cameraOff;
+  ui.stopCameraSettings.disabled = !available || cameraChangePending;
+  if (!cameraSelectionDirty && available && snapshot.cameraSource !== "off") {
+    ui.cameraSourceSelect.value = snapshot.cameraSource === "mock" ? "usb" : snapshot.cameraSource;
+    if (snapshot.cameraSource === "esp32") ui.esp32CameraUrl.value = snapshot.cameraUrl ?? "";
+  }
+  const selection = ui.cameraSourceSelect.value;
+  ui.esp32CameraFields.hidden = selection !== "esp32";
+  ui.usbCameraFields.hidden = selection !== "usb";
+  ui.cameraSourceSelect.disabled = !available || controlPending || cameraChangePending;
+  ui.esp32CameraUrl.disabled = !available || controlPending || cameraChangePending;
+  ui.applyCameraButton.disabled = !available || controlPending || cameraChangePending ||
+    (selection === "esp32" && !ui.esp32CameraUrl.value.trim());
+  ui.applyCameraButton.textContent = cameraChangePending ? "Connecting..." : "Use this camera";
+  const sourceError = available && snapshot.cameraSource !== "mock" ? snapshot.cameraError : null;
+  ui.cameraSourceError.textContent = sourceError ?? "";
+  ui.cameraSourceError.hidden = !sourceError;
+  ui.cameraSourceStatus.textContent = !backendOnline ? "Dashboard API offline" :
+    !available ? "Camera selection unavailable" :
+    cameraOff ? "Camera off" :
+    snapshot.cameraSource === "mock" ? "Simulated camera" :
+    sourceError ? snapshot.cameraSource === "esp32" ? "ESP32 unavailable" : "Camera unavailable" :
+    snapshot.cameraSource === "esp32" ?
+      (usableCamera ? "ESP32 connected" : "Waiting for ESP32 frames") +
+        (snapshot.visionReady ? " · Gemini configured" : " · Preview only") :
+      usableCamera ? "Camera connected" : "Waiting for camera frames";
 }
 
 function renderArm() {
@@ -176,16 +223,12 @@ function render() {
   if (!previewMode && cameraOnline && (lastFrameAt === null || Date.now() - lastFrameAt > FRAME_STALE_MS)) {
     cameraOnline = false;
   }
+  const usableCamera = cameraOnline && !snapshot?.cameraError;
 
-  setHealth(ui.backendHealth, ui.backendStatus, backendOnline ? "good" : "bad",
-    backendOnline ? (previewMode ? "Preview data" : "Online") : "Offline");
   ui.previewSettingsNote.hidden = !previewMode;
-  setHealth(ui.armHealth, ui.controllerStatus,
-    previewMode ? "waiting" : !backendOnline ? "waiting" : snapshot?.connected ? "good" : "bad",
-    previewMode ? "Preview data" : !backendOnline ? "Unavailable" : snapshot?.connected ? "Connected" : "Disconnected");
-  setHealth(ui.cameraHealth, ui.cameraStatus, cameraOnline ? "good" : "bad",
-    cameraOnline ? "Connected" : "Disconnected");
-  showFrame(backendOnline && cameraOnline);
+  setHealth(ui.cameraHealth, ui.cameraStatus, usableCamera ? "good" : "bad",
+    usableCamera ? "Connected" : "Disconnected");
+  showFrame(backendOnline && usableCamera);
 
   ui.overviewSubtitle.textContent = previewMode
     ? "Sample preview. No camera or arm hardware is connected."
@@ -193,7 +236,7 @@ function render() {
 
   const prediction = derivePrediction(snapshot, {
     backendOnline,
-    cameraOnline,
+    cameraOnline: usableCamera,
     now: Date.now(),
     staleAfterMs: previewMode ? 86400000 : 8000
   });
@@ -215,8 +258,9 @@ function render() {
   ui.runtimeMode.hidden = !previewMode && !snapshot?.simulation;
   ui.runtimeMode.textContent = previewMode ? "SAMPLE PREVIEW" : "SIMULATED ARM";
   ui.mockControls.hidden = !bridgeAvailable || !snapshot?.mockCamera;
+  renderCameraSource(usableCamera);
   ui.homeButton.disabled = controlPending || !bridgeAvailable || !snapshot?.connected || snapshot?.armState === "BUSY";
-  ui.sortingButton.disabled = controlPending || !bridgeAvailable || (!snapshot?.sortingEnabled && (!snapshot?.connected || snapshot?.armState !== "READY" || !cameraOnline));
+  ui.sortingButton.disabled = controlPending || !bridgeAvailable || (!snapshot?.sortingEnabled && (!snapshot?.connected || snapshot?.armState !== "READY" || !usableCamera || !snapshot?.visionReady));
   ui.sortingButton.textContent = snapshot?.sortingEnabled ? "Pause sorting" : "Start sorting";
   ui.stopButton.disabled = stopPending || (!previewMode && !backendOnline);
   ui.stopButton.querySelector("span").textContent = stopPending ? "SENDING..." : "STOP ARM";
@@ -255,10 +299,16 @@ function setupPreview() {
 }
 
 function refreshLiveFrame() {
+  if (!backendOnline || snapshot?.cameraError) return;
   // Do not cancel a slow JPEG on every state poll. Retry only after its deadline.
-  if (frameRequestAt !== null && Date.now() - frameRequestAt < FRAME_STALE_MS) return;
+  if (frameRequestAt !== null && Date.now() - frameRequestAt < FRAME_REQUEST_TIMEOUT_MS) return;
   frameRequestAt = Date.now();
   ui.cameraFrame.src = "/api/frame.jpg?t=" + frameRequestAt;
+}
+
+function refreshLiveFrameLoop() {
+  refreshLiveFrame();
+  setTimeout(refreshLiveFrameLoop, FRAME_POLL_MS);
 }
 
 async function pollState() {
@@ -270,6 +320,11 @@ async function pollState() {
     if (!response.ok) throw new Error("State request failed: " + response.status);
     snapshot = normalizeState(await response.json());
     backendOnline = true;
+    if (snapshot.cameraError) {
+      cameraOnline = false;
+      lastFrameAt = null;
+      frameRequestAt = null;
+    }
     if (awaitingStopState && requestSequence >= stopMinimumSequence) {
       if (!snapshot.connected) {
         setNotice("Arm controller disconnected before STOP was confirmed. Use the physical power cutoff if needed.", "error");
@@ -285,7 +340,7 @@ async function pollState() {
         awaitingStopState = false;
       }
     }
-    refreshLiveFrame();
+    if (!snapshot.cameraError) refreshLiveFrame();
   } catch {
     if (awaitingStopState) {
       setNotice("Dashboard API was lost before STOP was confirmed. Use the physical power cutoff if needed.", "error");
@@ -360,14 +415,79 @@ async function bridgeCommand(path, body = {}) {
   }
 }
 
+async function applyCameraSource() {
+  if (previewMode || controlPending || cameraChangePending || !backendOnline || !snapshot?.bridgeAvailable) return;
+  const source = ui.cameraSourceSelect.value;
+  const body = { source };
+  if (source === "esp32") body.url = ui.esp32CameraUrl.value.trim();
+  if (source === "usb") {
+    body.index = 0;
+    if (ui.usbCameraDevice.value) body.device_id = ui.usbCameraDevice.value;
+  }
+  cameraChangePending = true;
+  render();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch("/api/camera", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), signal: controller.signal
+    });
+    const result = await response.json();
+    if (!response.ok || result.accepted !== true) throw new Error(result.error || "Camera source was not accepted.");
+    snapshot = normalizeState(result.state);
+    cameraSelectionDirty = false;
+    cameraOnline = false;
+    lastFrameAt = null;
+    frameRequestAt = null;
+    ui.cameraFrame.removeAttribute("src");
+    setNotice(source === "esp32" ?
+      "ESP32 camera selected. Waiting for JPEG frames; sorting is paused." :
+      "Camera changed. Sorting is paused.", "success");
+  } catch (error) {
+    setNotice(error.name === "AbortError" ?
+      "Camera request timed out. Check the dashboard connection." : error.message, "error");
+  } finally {
+    clearTimeout(timeout);
+    cameraChangePending = false;
+    render();
+  }
+}
+
+async function stopCamera() {
+  if (previewMode || !backendOnline || cameraChangePending) return;
+  cameraChangePending = true;
+  render();
+  try {
+    const response = await fetch('/api/camera', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({source: 'off'})
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Could not stop camera.');
+    snapshot = normalizeState(result.state);
+    frameRequestAt = lastFrameAt = null;
+    cameraOnline = false;
+    ui.cameraFrame.removeAttribute('src');
+    showFrame(false);
+    setNotice('Camera stopped. Sorting paused.');
+  } catch (error) { setNotice(error.message, 'error'); }
+  finally { cameraChangePending = false; render(); }
+}
+ui.toggleCameraButton.addEventListener('click', () => snapshot?.cameraSource === 'off' ? applyCameraSource() : stopCamera());
+ui.stopCameraSettings.addEventListener('click', stopCamera);
 ui.homeButton.addEventListener("click", () => bridgeCommand("/api/home"));
 ui.sortingButton.addEventListener("click", () => bridgeCommand("/api/sorting", { enabled: !snapshot?.sortingEnabled }));
 ui.mockScenario.addEventListener("change", () => bridgeCommand("/api/mock", { scenario: ui.mockScenario.value }));
+ui.cameraSourceSelect.addEventListener("change", () => { cameraSelectionDirty = true; render(); });
+ui.esp32CameraUrl.addEventListener("input", () => { cameraSelectionDirty = true; render(); });
+ui.applyCameraButton.addEventListener("click", applyCameraSource);
 ui.stopButton.addEventListener("click", requestStop);
 if (previewMode) {
   setupPreview();
 } else {
   ui.cameraFrame.addEventListener("load", () => {
+    if (frameRequestAt === null || !backendOnline || snapshot?.cameraError) return;
     frameRequestAt = null;
     lastFrameAt = Date.now();
     cameraOnline = true;
@@ -381,4 +501,5 @@ if (previewMode) {
   });
   render();
   pollState();
+  setTimeout(refreshLiveFrameLoop, FRAME_POLL_MS);
 }

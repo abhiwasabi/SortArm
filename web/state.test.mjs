@@ -21,6 +21,19 @@ test("normalizes the agreed API fields without changing confirmed counts", () =>
   assert.deepEqual(state.counts, { PAPER: 3, PLASTIC: 4, METAL: 2, ORGANIC: 1 });
 });
 
+test("normalizes camera source and vision availability for settings", () => {
+  const state = normalizeState({ ...sample, camera_source: "esp32",
+    camera_url: "http://192.168.1.50/capture", mock_available: true,
+    mock_camera: false, vision_ready: false });
+  assert.equal(state.cameraSource, "esp32");
+  assert.equal(state.cameraUrl, "http://192.168.1.50/capture");
+  assert.equal(state.mockAvailable, true);
+  assert.equal(state.visionReady, false);
+  assert.equal(normalizeState({ ...sample, mock_camera: true }).cameraSource, "mock");
+  assert.equal(normalizeState({ ...sample, camera_error: "  Camera timed out.  " }).cameraError,
+    "Camera timed out.");
+});
+
 test("unknown items have no displayed bin even if an invalid API response includes one", () => {
   const state = normalizeState({ ...sample, label: "UNKNOWN", bin: "METAL" });
   assert.equal(state.bin, null);
@@ -129,4 +142,14 @@ test("a supported classifier decision can be displayed without fabricating confi
   const display = derivePrediction(state, { backendOnline: true, now: state.predictionAt });
   assert.equal(display.bin, "PLASTIC");
   assert.equal(display.confidence, null);
+});
+
+test('completed sort waits for clear instead of claiming identification is pending', () => {
+  const state = normalizeState({label:'UNKNOWN', awaiting_clear:true, sorting_enabled:true,
+    recent_sorts:[{id:'one',label:'Plastic bottle',bin:'PLASTIC',completed_at:new Date().toISOString()}]});
+  const result = derivePrediction(state, {backendOnline:true, cameraOnline:true});
+  assert.equal(result.kind, 'completed');
+  assert.equal(result.label, 'Plastic bottle');
+  assert.match(result.note, /Remove the item/);
+  assert.equal(result.bin, null);
 });

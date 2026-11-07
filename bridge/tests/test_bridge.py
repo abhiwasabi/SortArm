@@ -6,6 +6,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from bridge.adapters import MockSource
+from bridge.camera_sources import CameraSourceManager
 from bridge.core import Bridge, validate_prediction
 from bridge.server import make_server
 
@@ -128,11 +129,26 @@ class BridgeTests(unittest.TestCase):
         self.bridge.camera_lost()
         self.assertFalse(self.bridge.accept_prediction(ticket, prediction()))
         self.assertFalse(self.bridge.enabled)
+        self.assertIsNotNone(self.bridge.snapshot()['camera_error'])
         self.bridge.camera_frame((b'new', 'image/jpeg'))
+        self.assertIsNone(self.bridge.snapshot()['camera_error'])
+        self.assertEqual(self.bridge.snapshot()['status'], 'Camera feed restored. Sorting remains paused.')
+        self.assertFalse(self.bridge.enabled)
         self.bridge.set_sorting(True)
         ticket = self.bridge.begin_prediction()
         self.bridge.set_sorting(False)
         self.assertFalse(self.bridge.accept_prediction(ticket, prediction()))
+
+    def test_camera_source_change_pauses_and_invalidates_in_flight_result(self):
+        ticket = self.bridge.begin_prediction()
+        self.bridge.set_camera_source('esp32', 'http://192.168.4.1/capture', vision_ready=False)
+        self.assertFalse(self.bridge.enabled)
+        self.assertIsNone(self.bridge.frame)
+        self.assertIsNone(self.bridge.snapshot()['prediction_at'])
+        with self.assertRaisesRegex(ValueError, 'Gemini is not configured'):
+            self.bridge.set_sorting(True)
+        self.assertFalse(self.bridge.accept_prediction(ticket, prediction()))
+        self.assertEqual(self.arm.commands, [])
 
     def test_slow_result_cannot_move_or_refresh_prediction_timestamp(self):
         ticket = self.bridge.begin_prediction()
@@ -233,6 +249,193 @@ class HttpTests(unittest.TestCase):
             self.request('/api/frame.jpg')
         self.assertEqual(error.exception.code, 503)
         self.bridge.camera_frame(self.source.capture())
+
+
+class CameraHttpTests(unittest.TestCase):
+    def setUp(self):
+        self.web = Path(__file__).resolve().parents[2] / 'web'
+        self.arm = FakeArm()
+        self.bridge = Bridge(self.arm, simulation=True, mock_camera=True, mock_available=True)
+        self.camera = CameraSourceManager(self.bridge, self.web, allow_mock=True)
+        self.bridge.camera_frame(self.camera.source.capture())
+        self.server = make_server(self.bridge, self.web, 0, camera_manager=self.camera)
+        self.thread = threading.Thread(target=self.server.serve_forever)
+        self.thread.start()
+        self.url = f'http://127.0.0.1:{self.server.server_port}'
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+        self.camera.close()
+
+    def request(self, path, body=None):
+        data = json.dumps(body).encode() if body is not None else None
+        return urlopen(Request(self.url + path, data=data), timeout=3)
+
+    def test_switch_to_esp32_preview_and_back_to_mock(self):
+        self.bridge.home()
+        self.bridge.set_sorting(True)
+        ticket = self.bridge.begin_prediction()
+        with self.request('/api/camera', {'source': 'esp32', 'url': 'http://127.0.0.1:9/capture'}) as response:
+            state = json.load(response)['state']
+        self.assertEqual(state['camera_source'], 'esp32')
+        self.assertFalse(state['vision_ready'])
+        self.assertFalse(state['mock_camera'])
+        self.assertFalse(state['sorting_enabled'])
+        self.assertTrue(state['mock_available'])
+        self.assertFalse(self.bridge.accept_prediction(ticket, prediction()))
+        with self.assertRaises(HTTPError) as error:
+            self.request('/api/frame.jpg')
+        self.assertEqual(error.exception.code, 503)
+        self.assertFalse(self.camera.capture_once())
+        self.assertIn('ESP32 camera unreachable', self.bridge.snapshot()['camera_error'])
+        with self.request('/api/camera', {'source': 'mock'}) as response:
+            state = json.load(response)['state']
+        self.assertTrue(state['vision_ready'])
+        self.assertTrue(state['mock_camera'])
+        self.assertIsNone(state['camera_error'])
+        self.assertTrue(self.camera.capture_once())
+        with self.request('/api/frame.jpg') as response:
+            self.assertEqual(response.headers['Content-Type'], 'image/svg+xml')
+
+    def test_rejects_public_ip_without_changing_source(self):
+        with self.assertRaises(HTTPError) as error:
+            self.request('/api/camera', {'source': 'esp32', 'url': 'http://8.8.8.8/capture'})
+        self.assertEqual(error.exception.code, 400)
+        self.assertEqual(self.bridge.snapshot()['camera_source'], 'mock')
+
+    def test_applied_switch_reports_success_even_if_previous_camera_close_fails(self):
+        class FailingCloseSource:
+            def close(self):
+                raise OSError('device close failed')
+
+        self.camera.source = FailingCloseSource()
+        with self.assertLogs(level='WARNING'):
+            with self.request('/api/camera', {'source': 'esp32', 'url': 'http://127.0.0.1:9/capture'}) as response:
+                result = json.load(response)
+        self.assertTrue(result['accepted'])
+        self.assertEqual(result['state']['camera_source'], 'esp32')
+
+
+class CameraSwitchRaceTests(unittest.TestCase):
+    def test_switch_request_blocks_sort_while_old_capture_is_in_flight(self):
+        web = Path(__file__).resolve().parents[2] / 'web'
+        arm = FakeArm()
+        bridge = Bridge(arm, simulation=True, mock_camera=True)
+        manager = CameraSourceManager(bridge, web, allow_mock=True)
+        started = threading.Event()
+        release = threading.Event()
+        paused = threading.Event()
+
+        bridge.camera_frame((b'old frame', 'image/jpeg'))
+        bridge.home()
+        bridge.set_sorting(True)
+        ticket = bridge.begin_prediction()
+        original_prepare = bridge.prepare_camera_switch
+
+        def record_pause():
+            original_prepare()
+            paused.set()
+
+        bridge.prepare_camera_switch = record_pause
+
+        class BlockingSource:
+            def capture(self):
+                started.set()
+                release.wait(2)
+                return b'old source frame', 'image/jpeg'
+
+        manager.source = BlockingSource()
+        capture = threading.Thread(target=manager.capture_once)
+        capture.start()
+        self.assertTrue(started.wait(1))
+        switch = threading.Thread(target=lambda: manager.select('esp32', url='http://127.0.0.1:9/capture'))
+        switch.start()
+        self.assertTrue(paused.wait(1))
+        self.assertFalse(bridge.enabled)
+        with self.assertRaisesRegex(ValueError, 'Camera source is changing'):
+            bridge.set_sorting(True)
+        self.assertFalse(bridge.accept_prediction(ticket, prediction()))
+        self.assertEqual(arm.commands, [])
+        release.set()
+        capture.join(2)
+        switch.join(2)
+        self.assertFalse(capture.is_alive())
+        self.assertFalse(switch.is_alive())
+        self.assertIsNone(bridge.frame)
+        self.assertEqual(bridge.snapshot()['camera_source'], 'esp32')
+
+    def test_overlapping_switch_requests_keep_sorting_blocked_until_both_finish(self):
+        web = Path(__file__).resolve().parents[2] / 'web'
+        arm = FakeArm()
+        bridge = Bridge(arm, simulation=True, mock_camera=True)
+        manager = CameraSourceManager(bridge, web, allow_mock=True)
+        capture_started = threading.Event()
+        release_capture = threading.Event()
+        both_prepared = threading.Event()
+        first_finished = threading.Event()
+        release_first = threading.Event()
+        failures = []
+
+        class BlockingSource:
+            def capture(self):
+                capture_started.set()
+                release_capture.wait(2)
+                return b'old frame', 'image/jpeg'
+
+        manager.source = BlockingSource()
+        bridge.camera_frame((b'old frame', 'image/jpeg'))
+        arm.home()
+        bridge.set_sorting(True)
+        original_prepare = bridge.prepare_camera_switch
+        original_set = bridge.set_camera_source
+        calls = 0
+
+        def record_prepare():
+            original_prepare()
+            if bridge.camera_switches_pending == 2:
+                both_prepared.set()
+
+        def hold_first_set(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            original_set(*args, **kwargs)
+            if calls == 1:
+                first_finished.set()
+                release_first.wait(2)
+
+        bridge.prepare_camera_switch = record_prepare
+        bridge.set_camera_source = hold_first_set
+
+        def select(*args, **kwargs):
+            try:
+                manager.select(*args, **kwargs)
+            except Exception as exc:
+                failures.append(exc)
+
+        capture = threading.Thread(target=manager.capture_once)
+        capture.start()
+        self.assertTrue(capture_started.wait(1))
+        first = threading.Thread(target=lambda: select('usb', index=0))
+        second = threading.Thread(target=lambda: select('esp32', url='http://127.0.0.1:9/capture'))
+        first.start()
+        second.start()
+        self.assertTrue(both_prepared.wait(1))
+        release_capture.set()
+        self.assertTrue(first_finished.wait(2))
+        self.assertTrue(bridge.camera_switching)
+        with self.assertRaisesRegex(ValueError, 'Camera source is changing'):
+            bridge.set_sorting(True)
+        self.assertEqual(arm.commands, [])
+        release_first.set()
+        for thread in (capture, first, second):
+            thread.join(2)
+            self.assertFalse(thread.is_alive())
+        self.assertFalse(failures)
+        self.assertEqual(bridge.camera_switches_pending, 0)
+        self.assertFalse(bridge.camera_switching)
+        self.assertFalse(bridge.enabled)
 
 
 if __name__ == '__main__':

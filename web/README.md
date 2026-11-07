@@ -52,6 +52,8 @@ The dashboard never increments counts itself. The backend should update counts o
 
 Overview shows the camera, arm status, four bin totals, and recent completed sorts together. Their sidebar links open focused views of the same live components; returning to Overview restores them to the combined layout.
 
+In the backend-served dashboard, **Settings → Choose a camera** selects the simulated camera, laptop/USB camera, or an ESP32-S3 JPEG snapshot URL. The ESP32 option expects a local URL such as `http://192.168.1.50/capture`, after the board has been programmed to serve snapshots on the same Wi-Fi network. See [XIAO ESP32-S3 camera setup](../docs/xiao-esp32s3-camera.md). Camera selection calls `POST /api/camera`, pauses sorting, and clears the prior frame and prediction. The API state includes `camera_source`, `camera_url`, `camera_error`, and `vision_ready`; the dashboard disables Start sorting when a real camera is only in preview mode. The separate `?demo=1` sample preview does not operate camera controls.
+
 ## Dashboard checks
 
 Run `node --test web/*.test.mjs` and `node --check web/app.mjs`. The app tests simulate delayed frame loads, in-flight state requests during STOP, unknown controller states, the STOP confirmation deadline, and completed-sort history updates.

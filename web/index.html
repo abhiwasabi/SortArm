@@ -55,7 +55,7 @@
                 <img id="cameraFrame" class="camera-frame" alt="Latest frame of the marked pickup area" hidden>
                 <div id="frameFallback" class="frame-fallback"><span class="fallback-icon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><rect x="5" y="10" width="38" height="28" rx="5" stroke="currentColor" stroke-width="2"/><circle cx="24" cy="24" r="8" stroke="currentColor" stroke-width="2"/><circle cx="24" cy="24" r="2" fill="currentColor"/></svg></span><strong>Waiting for camera feed</strong><span>The latest frame will appear here when the camera is available.</span></div>
               </div>
-              <div class="camera-footer">Place one item in the marked area</div>
+              <div class="camera-footer">Place one item in the marked area <button id="toggleCameraButton" class="control-button" type="button">Stop camera</button></div>
             </section>
 
             <div class="right-stack">
@@ -100,6 +100,7 @@
         <div class="detail-heading"><p class="small-label">CAMERA</p><h1 id="cameraViewTitle">Camera</h1><p>See the fixed pickup area and its connection status.</p></div>
         <p class="preview-detail-note" hidden>Sample camera image. No camera hardware is connected.</p>
         <div class="detail-surface"><div id="cameraMount" class="detail-mount"></div></div>
+        <div id="cameraSettingsMount" style="margin-top:24px"></div>
       </section>
 
       <section id="armView" class="detail-view" aria-labelledby="armViewTitle" hidden>
@@ -122,9 +123,39 @@
           <select id="mockScenario"><option value="empty">Empty</option><option value="bottle">Plastic bottle</option><option value="paper">Paper sheet</option><option value="metal">Metal can</option><option value="organic">Banana peel</option><option value="unknown">Unknown item</option><option value="camera-offline">Camera disconnected</option></select>
           <p class="bridge-status">Sample images and simulated motion. Choose Empty between items to allow another sort.</p>
         </div>
-        <div class="settings-card">
-          <div class="settings-row" id="backendHealth" data-health="waiting"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M7 10h10M7 14h6"/></svg></span><div class="settings-row-copy"><strong>Dashboard API</strong><span>Local app connection</span></div><div class="settings-state"><span class="health-light" aria-hidden="true"></span><span id="backendStatus">Connecting</span></div></div>
-          <div class="settings-row" id="armHealth" data-health="waiting"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 20h18M7 20v-4h8v4M9 16l-2-6 5-3 4 6-4 3M12 7l3-4 5 4-3 4"/></svg></span><div class="settings-row-copy"><strong>Arm controller</strong><span>SO-101 via laptop USB</span></div><div class="settings-state"><span class="health-light" aria-hidden="true"></span><span id="controllerStatus">Waiting</span></div></div>
+        <form id="geminiSettings" class="settings-card camera-source-card" autocomplete="off">
+          <div class="camera-source-heading"><div><p class="small-label">ITEM RECOGNITION</p><h2>Gemini</h2></div><span id="geminiStatus" class="gemini-connection-status" role="status">Checking connection</span></div>
+          <div id="geminiKeyFields" hidden>
+            <label for="geminiKey">API key</label>
+            <input id="geminiKey" type="password" autocomplete="new-password" spellcheck="false" placeholder="Paste your Gemini API key" required>
+          </div>
+          <p id="geminiConnectedNote" hidden>API connected. Ready for item recognition.</p>
+          <p>Your key stays in the local server's memory until disconnected or restarted. Connecting checks your key and tests a Gemini response. Camera images are sent to Google during recognition.</p>
+          <p id="geminiMessage" role="status" aria-live="polite"></p>
+          <button id="geminiConnect" class="control-button" type="submit" hidden>Connect Gemini</button>
+          <button id="geminiDisconnect" class="control-button" type="button" hidden>Disconnect</button>
+        </form>
+        <div id="cameraSourceCard" class="settings-card camera-source-card" hidden>
+          <div class="camera-source-heading"><div><p class="small-label">CAMERA INPUT</p><h2>Choose a camera</h2></div><span id="cameraSourceStatus" class="camera-source-status" role="status">Checking connection</span></div>
+          <label for="cameraSourceSelect">Source</label>
+          <select id="cameraSourceSelect" disabled>
+            <option value="usb">Laptop or USB camera</option>
+            <option value="esp32">ESP32-S3 camera</option>
+          </select>
+          <div id="usbCameraFields" class="camera-source-fields" hidden>
+            <label for="usbCameraDevice">Camera device</label>
+            <select id="usbCameraDevice"><option value="">Loading cameras…</option></select>
+            <p>Select MacBook Air Camera to use this laptop's built-in webcam.</p>
+          </div>
+          <div id="esp32CameraFields" class="camera-source-fields" hidden>
+            <label for="esp32CameraUrl">JPEG snapshot URL</label>
+            <input id="esp32CameraUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.50/capture" disabled>
+            <p>Use the camera's local <code>/capture</code> address. The ESP32-S3 and this laptop must be on the same Wi-Fi network.</p>
+          </div>
+          <p id="cameraSourceError" class="camera-source-error" role="alert" hidden></p>
+          <p class="camera-source-help">Applying a camera pauses sorting and clears the previous item decision.</p>
+          <button id="applyCameraButton" class="control-button" type="button" disabled>Use this camera</button>
+          <button id="stopCameraSettings" class="control-button" type="button">Stop camera</button>
         </div>
       </section>
     </main>
@@ -147,6 +178,8 @@
   const originalPlaces = Object.fromEntries(Object.entries(components).map(([name, node]) => [
     name, { parent: node.parentNode, next: node.nextSibling }
   ]));
+  const cameraSettings = document.getElementById("cameraSourceCard");
+  const cameraSettingsHome = { parent: cameraSettings.parentNode, next: cameraSettings.nextSibling };
   const preview = new URLSearchParams(location.search).get("demo") === "1";
   for (const note of document.querySelectorAll(".preview-detail-note")) note.hidden = !preview;
 
@@ -154,6 +187,8 @@
     const activeHref = navLinks.some((link) => link.getAttribute("href") === location.hash)
       ? location.hash : "#overview";
     const page = activeHref.slice(1);
+    if (page === "camera") document.getElementById("cameraSettingsMount").append(cameraSettings);
+    else cameraSettingsHome.parent.insertBefore(cameraSettings, cameraSettingsHome.next);
     for (const [name, node] of Object.entries(components)) {
       const place = originalPlaces[name];
       place.parent.insertBefore(node, place.next);
@@ -174,5 +209,7 @@
   addEventListener("hashchange", updateNavigation);
   updateNavigation();
 </script>
+<script type="module" src="./gemini.mjs"></script>
+<script type="module" src="./cameras.mjs"></script>
 </body>
 </html>
