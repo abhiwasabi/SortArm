@@ -7,7 +7,7 @@ A hackathon prototype for recognizing a small set of selected ASL signs, showing
 1. Accept the repository invitation, then clone the repo.
 2. Install [GitHub CLI](https://cli.github.com/) and run `gh auth login` with your own account.
 3. In the repository, run `tools/board whoami`, then `tools/board read -n 20`.
-4. Read [AGENTS.md](AGENTS.md). Agree on work areas and update its owner table.
+4. Read [AGENTS.md](AGENTS.md) and [PLAN.md](PLAN.md) for the agreed owners, interfaces, and build order.
 
 The pinned **Message Board** issue is for handoffs and decisions. Use `tools/board post "[Your Name's Agent] message"` to post. `tools/board unread` shows new posts and marks ones addressed to you. See `tools/board help` for all commands.
 
