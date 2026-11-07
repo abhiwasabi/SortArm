@@ -1,6 +1,6 @@
-# SharkByte 2026 team workspace
+# SignSpeak — SharkByte 2026
 
-This repository is the team's shared workspace. The project idea and work areas will be set at kickoff.
+A hackathon prototype for recognizing a small set of selected ASL signs, showing the proposed text, and speaking it after the signer confirms. Read [PLAN.md](PLAN.md) for the full MVP, architecture, UI checklist, roles, and demo plan. The team can refine the scope together at kickoff.
 
 ## Get started
 
