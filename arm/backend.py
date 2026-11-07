@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from .config import BODY_JOINTS, GRIPPER, JOINTS, ArmConfig
@@ -158,6 +160,10 @@ class MockBackend:
     - Set `fail` to an exception class (e.g. ConnectionError) to make every read and write raise it;
       `fail_once` makes only the next read raise.
     - `read_gate` / `write_gate`: when set to an Event, reads / writes wait for it (a hung bus).
+    - `write_hook(goal)` runs before each write is applied: it may sleep (a delayed bus write) or
+      raise (a servo error). `write_times` records when each write was applied.
+    - After `close()`, a write raises ConnectionError (as LeRobot does) and counts in
+      `writes_after_close`.
     - `reads` counts reads, `read_threads` records which thread made each one, and `writes` keeps
       every goal sent. `move_by_hand()` changes a joint as if pushed (or sagging with power off).
     """
@@ -174,9 +180,12 @@ class MockBackend:
         self.fail_once: type[BaseException] | None = None
         self.read_gate: threading.Event | None = None
         self.write_gate: threading.Event | None = None
+        self.write_hook: Callable[[Positions], None] | None = None
         self.torque = True
         self.closed = False
+        self.writes_after_close = 0
         self.writes: list[Positions] = []
+        self.write_times: list[float] = []
         self.reads = 0
         self.read_threads: list[str] = []
 
@@ -203,10 +212,17 @@ class MockBackend:
         gate = self.write_gate
         if gate is not None:
             gate.wait()
+        if self.closed:
+            self.writes_after_close += 1
+            raise ConnectionError("mock arm is closed")
+        hook = self.write_hook
+        if hook is not None:
+            hook(goal)
         if self.fail:
             raise self.fail("mock arm not responding")
         with self._lock:
             self.writes.append(dict(goal))
+            self.write_times.append(time.perf_counter())
             if not self.torque:
                 return
             for joint, value in goal.items():

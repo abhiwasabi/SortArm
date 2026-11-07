@@ -69,7 +69,9 @@ arm.stop()               # always accepted
 arm.state, arm.detail    # current state and reason; str(arm.state) == "READY" etc. (use it for arm_state)
 arm.poll()               # call ~1/s: checks the arm answers; returns arm.connected; never raises
 arm.last_done            # (sequence number, "SORT PAPER") of the last completed command
-arm.close()              # on shutdown: stops motion, refuses new commands, then disconnects
+arm.close()              # on shutdown: stops motion, refuses new commands, then disconnects. Returns
+                         # True when disconnected; if the servo bus is hung it returns False and the
+                         # stuck operation disconnects as soon as it ends (never concurrently)
 ```
 
 **Behavior the bridge can rely on:**
