@@ -11,10 +11,11 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from pathlib import Path
 
-from .backend import MockBackend, So101Backend
+from .backend import Backend, MockBackend, So101Backend
 from .config import BODY_JOINTS, GRIPPER, ArmConfig
-from .poses import GRIPPER_KEYS, REQUIRED_POSES, load, save
+from .poses import GRIPPER_KEYS, REQUIRED_POSES, Poses, load, save
 
 HELP = """\
 Commands (type and press Enter):
@@ -24,14 +25,78 @@ Commands (type and press Enter):
   open | closed      save the current gripper opening as the open / closed value
   list               show which poses are saved and which are missing
   t                  toggle torque (on = arm holds still; off = move it by hand)
-  q                  quit (torque turns off: support the arm or leave it at rest)
+  help               show this help
+  q | quit           quit (torque turns off: support the arm or leave it at rest)
 Any other simple name (letters, digits, _) saves a custom pose."""
 
 NAME = re.compile(r"^[a-z][a-z0-9_]*$")
+QUIT = {"q", "quit", "exit"}
+SHOW_HELP = {"help", "h", "?"}
+# Read failures from the bus (LeRobot raises OSError/ConnectionError or RuntimeError).
+READ_ERRORS = (OSError, RuntimeError)
 
 
 def fmt(reading: dict[str, float]) -> str:
     return "  ".join(f"{joint}={reading[joint]:7.1f}" for joint in (*BODY_JOINTS, GRIPPER))
+
+
+class TeachSession:
+    """The teach-mode commands, separated from the console so they can be tested."""
+
+    def __init__(self, backend: Backend, poses: Poses, path: Path, torque: bool = False):
+        self.backend = backend
+        self.poses = poses
+        self.path = path
+        self.torque = torque
+
+    def handle(self, raw: str) -> tuple[str, bool]:
+        """Run one command. Returns (message to print, keep going)."""
+        cmd = raw.strip().lower()
+        if cmd in QUIT:
+            return "", False
+        if cmd in SHOW_HELP:
+            return HELP, True
+        if cmd == "list":
+            return self._list(), True
+        if cmd == "t":
+            try:
+                self.backend.set_torque(not self.torque)
+            except READ_ERRORS as exc:
+                return f"Could not change torque ({exc}). Check the cable and power, then try again.", True
+            self.torque = not self.torque
+            return ("Torque ON: the arm holds its position." if self.torque else "Torque OFF: hold the arm."), True
+        if not (cmd == "" or cmd in GRIPPER_KEYS or NAME.match(cmd)):
+            return "Unknown command. Type 'help' for the list; 'q' quits.", True
+
+        try:
+            reading = {joint: round(value, 1) for joint, value in self.backend.read().items()}
+        except READ_ERRORS as exc:
+            return f"Could not read the arm ({exc}). Check the cable and power, then try again.", True
+        if cmd == "":
+            return fmt(reading), True
+        if cmd in GRIPPER_KEYS:
+            self.poses.gripper[cmd] = reading[GRIPPER]
+            saved = f"Saved gripper {cmd} = {reading[GRIPPER]}"
+        else:
+            self.poses.poses[cmd] = {joint: reading[joint] for joint in BODY_JOINTS}
+            tag = "" if cmd in REQUIRED_POSES else " (custom pose)"
+            saved = f"Saved {cmd}{tag}: {fmt(reading)}"
+        try:
+            save(self.poses, self.path)
+        except OSError as exc:  # e.g. OneDrive or an editor holding the file
+            return (f"Recorded {cmd!r} but could not write {self.path} ({exc}). "
+                    "Close whatever holds the file, then save the pose again."), True
+        return saved, True
+
+    def _list(self) -> str:
+        lines = [f"  {name:14} {'saved' if self.poses.has(name) else 'MISSING'}" for name in REQUIRED_POSES]
+        for key in GRIPPER_KEYS:
+            value = self.poses.gripper.get(key) if self.poses.has_grip(key) else "MISSING"
+            lines.append(f"  gripper {key:6} {value}")
+        extra = sorted(set(self.poses.poses) - set(REQUIRED_POSES))
+        if extra:
+            lines.append("  custom: " + ", ".join(extra))
+        return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -44,58 +109,36 @@ def main(argv: list[str] | None = None) -> int:
     if args.port:
         config.port = args.port
     try:
-        backend = MockBackend() if args.mock else So101Backend(config)
-    except (ValueError, RuntimeError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        poses = load(config.poses_path)  # before opening the port: a broken file must not leave it open
+    except (OSError, ValueError) as exc:  # ValueError covers invalid JSON (e.g. merge-conflict markers)
+        print(f"error: cannot read {config.poses_path}: {exc}", file=sys.stderr)
+        return 2
+    try:
+        backend: Backend = MockBackend() if args.mock else So101Backend(config)
+    except (ValueError, OSError, RuntimeError) as exc:  # OSError covers a wrong or busy port
+        print(f"error: {str(exc).strip()}", file=sys.stderr)
         return 2
 
-    poses = load(config.poses_path)
-    print(HELP)
-    print(f"\nPoses file: {config.poses_path}")
-    input("\nHold the arm, then press Enter to turn torque OFF... ")
-    backend.set_torque(False)
-    torque = False
-    print("Torque OFF. Move the arm by hand.")
-
+    session = TeachSession(backend, poses, config.poses_path, torque=True)
     try:
+        print(HELP)
+        print(f"\nPoses file: {config.poses_path}")
+        input("\nHold the arm, then press Enter to turn torque OFF... ")
+        message, _ = session.handle("t")
+        print(message)
         while True:
-            cmd = input("teach> ").strip().lower()
-            reading = {joint: round(value, 1) for joint, value in backend.read().items()}
-            if cmd == "":
-                print(fmt(reading))
-            elif cmd == "q":
+            message, keep_going = session.handle(input("teach> "))
+            if message:
+                print(message)
+            if not keep_going:
                 break
-            elif cmd == "t":
-                torque = not torque
-                backend.set_torque(torque)
-                print("Torque ON: the arm holds its position." if torque else "Torque OFF: hold the arm.")
-            elif cmd == "list":
-                for name in REQUIRED_POSES:
-                    print(f"  {name:14} {'saved' if poses.poses.get(name) else 'MISSING'}")
-                for key in GRIPPER_KEYS:
-                    value = poses.gripper.get(key)
-                    print(f"  gripper {key:6} {value if value is not None else 'MISSING'}")
-                extra = sorted(set(poses.poses) - set(REQUIRED_POSES))
-                if extra:
-                    print("  custom:", ", ".join(extra))
-            elif cmd in GRIPPER_KEYS:
-                poses.gripper[cmd] = reading[GRIPPER]
-                save(poses, config.poses_path)
-                print(f"Saved gripper {cmd} = {reading[GRIPPER]}")
-            elif NAME.match(cmd):
-                poses.poses[cmd] = {joint: reading[joint] for joint in BODY_JOINTS}
-                save(poses, config.poses_path)
-                tag = "" if cmd in REQUIRED_POSES else " (custom pose)"
-                print(f"Saved {cmd}{tag}: {fmt(reading)}")
-            else:
-                print("Unknown command. Press Enter on an empty line to see readings; 'q' quits.")
     except (KeyboardInterrupt, EOFError):
         print()
     finally:
         print("Closing: torque turns off.")
         backend.close()
 
-    missing = poses.missing()
+    missing = session.poses.missing()
     print("All required poses saved." if not missing else "Still missing: " + ", ".join(missing))
     return 0
 

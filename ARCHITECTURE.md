@@ -52,44 +52,46 @@ Change these only after posting on the Message Board and getting agreement from 
 
 ### Bridge → arm (#16 → #20)
 
-Use either form; both have identical behavior.
+Use either form. Both take the same commands and report the same states; only the in-process form also exposes `connected` and `last_done` as values.
 
 **In-process (recommended):**
 
 ```python
-from arm import ArmConfig, ArmController, So101Backend, MockBackend, load_poses
+from arm import ArmConfig, ArmController
 
 config = ArmConfig.from_env()                    # ARM_PORT=COM5, etc.
-arm = ArmController(So101Backend(config), load_poses(config.poses_path), config)
+arm = ArmController.from_config(config)          # mock=True for no hardware; checks settings and
+                                                 # poses before opening the port
 arm.on_state(lambda state, detail: ...)          # state is ArmState.READY/BUSY/DONE/ERROR
 arm.home()               # -> bool accepted
 arm.sort("RECYCLE")      # -> bool accepted; arm.last_rejection says why not
 arm.stop()               # always accepted
-arm.state, arm.detail    # current state and reason
-arm.poll()               # call ~1/s: checks the arm answers; returns arm.connected
+arm.state, arm.detail    # current state and reason; str(arm.state) == "READY" etc. (use it for arm_state)
+arm.poll()               # call ~1/s: checks the arm answers; returns arm.connected; never raises
 arm.last_done            # (sequence number, "SORT RECYCLE") of the last completed command
+arm.close()              # on shutdown: stops motion, refuses new commands, then disconnects
 ```
 
 **Behavior the bridge can rely on:**
 
 | Question | Answer |
 | --- | --- |
-| Do `home()` / `sort()` block? | No. They return at once: `True` means accepted and the arm is already `BUSY`; `False` means rejected (reason in `arm.last_rejection`) and nothing moved. Motion runs on the controller's worker thread. |
-| How does STOP interrupt a move? | `stop()` can be called from any thread at any time, including mid-sort. The move checks for it every control step (20 ms), sets the goal to the present position so the arm holds, and reports `ERROR` with detail `"stopped"`. `stop()` returns after that, typically within about 20 ms. The rest of the sequence is cancelled; a stopped SORT never reports `DONE`. |
+| Do `home()` / `sort()` block? | No. They return at once: `True` means accepted and the arm is already `BUSY`; `False` means rejected and nothing moved. `arm.last_rejection` gives the reason for the calling thread's own last command. Motion runs on the controller's worker thread. If STOP had to give up on a hung servo bus ("stopped; arm not responding"), new commands are refused until that stopped motion ends; it never resumes. |
+| How does STOP interrupt a move? | `stop()` can be called from any thread at any time, including mid-sort and from a listener. The move checks for it every control step (20 ms) and **freezes**: body joints hold where they are, and the gripper keeps its last command, so a carried item is not dropped. When `stop()` returns, `arm.state` is `ERROR` (detail `"stopped"`), typically within about 20 ms; the `ERROR` callback follows. This holds even if STOP races a new command or one that is just finishing. The rest of the sequence is cancelled; a stopped SORT never reports `DONE`. |
 | How does DONE become READY? | When the last step finishes, the controller reports `DONE` (detail = the command) and then immediately `READY`. DONE is momentary, so do not wait to poll it. |
-| How is connection loss shown? | `arm.connected` becomes `False` and the arm enters `ERROR` with detail `"connection lost: …"`. A move detects this itself. While idle, `arm.poll()` detects it; `poll()` never touches the bus during a move. If the arm answers again, `poll()` sets `connected` back to `True`, but the state stays `ERROR` until HOME. After a USB unplug, restart the bridge so LeRobot reopens the port. Map `connected` to `/api/state.connected`. |
+| How is connection loss shown? | `arm.connected` becomes `False` and the arm enters `ERROR` with detail `"connection lost: …"`. Only USB, power, or bus failures count; other faults (e.g. a servo refusing a command) report `"<command> failed: …"` or, from `poll()`, `"arm check failed: …"`, with `connected` unchanged. A move detects connection loss itself. While idle, `arm.poll()` detects it; `poll()` never touches the bus during a move, and a poll result overtaken by a newer command is discarded. After a power cut the next move starts from where the arm really is, not from its old goal. If the arm answers again, `poll()` sets `connected` back to `True`, but the state stays `ERROR` until HOME. After a USB unplug, restart the bridge so LeRobot reopens the port. Map `connected` to `/api/state.connected`. |
 | How do I count each completed command exactly once? | `on_state` is called with `(ArmState.DONE, "SORT RECYCLE")` exactly once per completed command; count the bin there. If you poll instead, count when `arm.last_done[0]` increases. |
-| Which thread calls `on_state` listeners? | The controller's worker thread (or the caller's thread for STOP while idle). Keep listeners short: update the bridge state under its own lock and return. |
+| Which thread calls `on_state` listeners? | One notifier thread owned by the controller (`arm-notifier`), always in state order. Never the worker or the `poll()` caller. Listeners may call `home()`, `sort()`, `stop()` and `poll()` (e.g. start the next sort on `READY`), but not `wait_idle()`. Keep them short: update the bridge state under its own lock and return. |
 
-**Subprocess:** run `python -m arm.cli` (or `--mock`). Write `HOME`, `SORT RECYCLE`, `SORT TRASH`, or `STOP` lines to its stdin. It prints exactly one state word per line on stdout and writes `#` notes, including rejection reasons, to stderr.
+**Subprocess:** run `python -m arm.cli` (or `--mock`). Write `HOME`, `SORT RECYCLE`, `SORT TRASH`, or `STOP` lines to its stdin. It prints exactly one state word per line on stdout and writes notes, every line starting with `#`, to stderr (rejection reasons, error details, warnings). While idle it checks the arm once a second, so a lost connection prints `ERROR` with a `# connection lost: …` note.
 
 **Arm state machine:**
 
 ```text
  start ──► ERROR ("not homed") ──HOME──► BUSY ──► DONE ──► READY
  READY ──SORT <bin>──► BUSY ──► DONE ──► READY
- BUSY  ──STOP──► ERROR ("stopped", arm holds position) ──HOME──► BUSY ──► … READY
- BUSY  ──motion fault──► ERROR (arm holds position) ──HOME──► …
+ BUSY  ──STOP──► ERROR ("stopped", arm frozen, gripper keeps its grip) ──HOME──► BUSY ──► … READY
+ BUSY  ──motion fault──► ERROR (arm frozen) ──HOME──► …
  any   ──connection lost──► ERROR, connected=False ──(arm answers again) poll()──► connected=True ──HOME──► …
 ```
 
@@ -113,10 +115,11 @@ arm.last_done            # (sequence number, "SORT RECYCLE") of the last complet
 ## Safety rules (all code)
 
 1. A rejected or unknown command never moves the arm.
-2. STOP is always accepted. It cancels motion within one control step (20 ms) and **holds** position; it does not drop the arm. Only HOME leaves ERROR.
+2. STOP is always accepted. It cancels motion within one control step (20 ms) and **freezes** the arm: body joints hold where they are and the gripper keeps its last command, so neither the arm nor a carried item drops. Only HOME leaves ERROR.
 3. Moves are slow by default (20 °/s) and interpolated. LeRobot also caps any single body-joint step at 10 °.
-4. Any motion failure holds position and reports ERROR. Nothing retries automatically.
-5. During testing, keep a hand on the servo power switch. Exiting the arm programs turns torque off, so the arm goes limp: end at rest or support it.
+4. Any motion failure freezes the arm the same way and reports ERROR. Nothing retries automatically.
+5. Settings are checked at start-up: a zero, negative, non-numeric, or too-high speed (ceiling 90 °/s, set in `arm/config.py`, not the environment) is refused instead of disabling the slow moves. The 10° cap never turns into a fast move: a goal still beyond it after a move is not re-sent; the move fails and holds. Connecting sets every goal to the arm's present position before torque comes on, so the arm cannot jump to an old goal.
+6. During testing, keep a hand on the servo power switch. Exiting the arm programs turns torque off, so the arm goes limp: end at rest or support it.
 
 ## Setup order
 

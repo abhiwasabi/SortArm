@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +56,31 @@ class ArmConfig:
     # Pauses that let the gripper finish closing or opening.
     grip_dwell_s: float = 0.6
     release_dwell_s: float = 0.6
+
+    # Hard ceilings, deliberately not settable from the environment: a typo such as
+    # ARM_SPEED_DEG_S=2000 is refused instead of making the arm fast. Change them here, on purpose.
+    speed_limit_deg_s: float = 90.0
+    gripper_speed_limit: float = 300.0
+    relative_target_limit: float = 30.0
+
+    def validate(self) -> None:
+        """Reject settings that would break slow, interpolated motion (e.g. a typo like -20 or 2000)."""
+        for name in ("speed_deg_s", "gripper_speed", "rate_hz", "max_relative_target",
+                     "tolerance_deg", "settle_timeout_s"):
+            value = getattr(self, name)
+            if not (isinstance(value, (int, float)) and math.isfinite(value) and value > 0):
+                raise ValueError(f"Arm setting {name} must be a positive number, got {value!r}.")
+        for name in ("grip_dwell_s", "release_dwell_s"):
+            value = getattr(self, name)
+            if not (isinstance(value, (int, float)) and math.isfinite(value) and value >= 0):
+                raise ValueError(f"Arm setting {name} must be zero or more, got {value!r}.")
+        for name, limit in (("speed_deg_s", "speed_limit_deg_s"), ("gripper_speed", "gripper_speed_limit"),
+                            ("max_relative_target", "relative_target_limit")):
+            if getattr(self, name) > getattr(self, limit):
+                raise ValueError(
+                    f"Arm setting {name}={getattr(self, name)!r} is above the safety ceiling "
+                    f"{limit}={getattr(self, limit)!r} (see arm/config.py)."
+                )
 
     @classmethod
     def from_env(cls) -> "ArmConfig":

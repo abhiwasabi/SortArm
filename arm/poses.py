@@ -43,6 +43,13 @@ class Poses:
                 "Poses not taught yet: " + ", ".join(missing) + ". Record them with `python -m arm.teach`."
             )
 
+    def has(self, name: str) -> bool:
+        """True if pose `name` is saved with all five body joints."""
+        return _complete(self.poses.get(name))
+
+    def has_grip(self, key: str) -> bool:
+        return isinstance(self.gripper.get(key), (int, float))
+
     def body(self, name: str) -> dict[str, float]:
         if name not in self.poses:
             raise PosesError(f"Unknown pose {name!r}")

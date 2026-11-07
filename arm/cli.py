@@ -5,24 +5,31 @@
 
 stdin:  HOME | SORT RECYCLE | SORT TRASH | STOP   (one per line; QUIT to exit)
 stdout: READY | BUSY | DONE | ERROR               (one per state change; nothing else)
-stderr: human-readable notes, starting with "#", including why a command was rejected.
+stderr: human-readable notes, every line starting with "#", including why a command was rejected.
 
-The bridge (#16) can run this as a subprocess, or import ArmController directly.
+While idle the console checks the arm once a second, so a lost connection prints ERROR (note:
+"# connection lost: ...") without waiting for a command. The bridge (#16) can run this as a
+subprocess, or import ArmController directly; only the in-process form exposes `connected` and
+`last_done` as values.
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
+import threading
 
-from .backend import MockBackend, So101Backend
-from .config import ArmConfig
+from .config import BINS, ArmConfig
 from .controller import ArmController, ArmState
-from .poses import PosesError, demo_poses, load
+from .poses import PosesError
 
 
 def note(text: str) -> None:
-    print(f"# {text}", file=sys.stderr, flush=True)
+    """Print a human note on stderr; every line starts with "#"."""
+    for line in str(text).strip().splitlines() or [""]:
+        if line.strip():
+            print(f"# {line.strip()}", file=sys.stderr, flush=True)
 
 
 def handle_line(arm: ArmController, line: str) -> str | None:
@@ -45,19 +52,9 @@ def build(args: argparse.Namespace) -> ArmController:
     config = ArmConfig.from_env()
     if args.port:
         config.port = args.port
-    if args.speed:
+    if args.speed is not None:
         config.speed_deg_s = args.speed
-
-    poses = load(config.poses_path)
-    if args.mock:
-        if poses.missing():
-            note("poses.json is not fully taught; the mock uses made-up demo poses")
-            poses = demo_poses()
-        backend = MockBackend(start={**poses.body("home"), "gripper": poses.grip("open")})
-    else:
-        poses.validate()  # fail before connecting to the arm
-        backend = So101Backend(config)
-    return ArmController(backend, poses, config)
+    return ArmController.from_config(config, mock=args.mock)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -66,11 +63,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", help="serial port of the bus-servo board (default: $ARM_PORT)")
     parser.add_argument("--speed", type=float, help="body joint speed in deg/s (default 20)")
     args = parser.parse_args(argv)
+    # Library logs (including multi-line tracebacks) go to stderr as "#" notes, keeping stdout for
+    # state words only.
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(NoteFormatter())
+    logging.basicConfig(level=logging.WARNING, handlers=[handler], force=True)
 
     try:
         arm = build(args)
-    except (PosesError, ValueError, RuntimeError) as exc:
-        note(str(exc))
+    except (PosesError, ValueError, OSError, RuntimeError) as exc:  # OSError covers a wrong or busy port
+        note(str(exc).strip())
         return 2
 
     def report(state: ArmState, detail: str | None) -> None:
@@ -80,7 +82,8 @@ def main(argv: list[str] | None = None) -> int:
 
     arm.on_state(report)
     report(arm.state, arm.detail)
-    note("commands: HOME, SORT RECYCLE, SORT TRASH, STOP, QUIT")
+    note("commands: HOME, " + ", ".join(f"SORT {b}" for b in BINS) + ", STOP, QUIT")
+    stop_polling = start_polling(arm)
 
     try:
         for line in sys.stdin:
@@ -92,9 +95,34 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        stop_polling.set()
         note("closing; on the real arm this turns torque off, so support the arm or leave it at rest")
         arm.close()
     return 0
+
+
+class NoteFormatter(logging.Formatter):
+    """Prefix every line of a log record with "#", tracebacks and dict dumps included."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        text = super().format(record)
+        return "\n".join(f"# {line}" for line in text.splitlines() if line.strip()) or "#"
+
+
+def start_polling(arm: ArmController, interval_s: float = 1.0) -> threading.Event:
+    """Check the arm's connection every `interval_s` while idle, like the in-process bridge does.
+
+    A lost connection then shows up as ERROR (with a "# connection lost" note) without waiting for
+    the next command. Set the returned event to stop.
+    """
+    stop = threading.Event()
+
+    def loop() -> None:
+        while not stop.wait(interval_s):
+            arm.poll()
+
+    threading.Thread(target=loop, name="arm-poll", daemon=True).start()
+    return stop
 
 
 if __name__ == "__main__":
