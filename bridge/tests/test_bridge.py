@@ -63,7 +63,6 @@ class BridgeTests(unittest.TestCase):
         self.bridge = Bridge(self.arm, simulation=True, clock=lambda: self.now)
         self.bridge.camera_frame((b'frame', 'image/jpeg'))
         self.bridge.home()
-        self.bridge.set_sorting(True)
 
     def result(self, raw=None):
         self.now += .1
@@ -71,6 +70,7 @@ class BridgeTests(unittest.TestCase):
         return self.bridge.accept_prediction(self.bridge.begin_prediction(), raw or prediction())
 
     def test_one_sort_per_item_and_only_done_increments(self):
+        self.assertTrue(self.bridge.enabled)
         self.assertTrue(self.result())
         self.assertEqual(self.bridge.counts['PLASTIC'], 0)
         self.arm.finish()
@@ -83,6 +83,36 @@ class BridgeTests(unittest.TestCase):
         self.arm.finish()
         self.assertEqual(self.arm.commands, ['PLASTIC', 'PLASTIC'])
         self.assertEqual(self.bridge.counts['PLASTIC'], 2)
+
+    def test_new_item_updates_during_motion_and_sorts_without_empty_area(self):
+        self.assertTrue(self.result())
+        metal = prediction(label='Metal can', bin='METAL')
+        self.assertFalse(self.result(metal))
+        self.assertEqual(self.bridge.snapshot()['label'], 'Metal can')
+        self.assertFalse(self.bridge.snapshot()['awaiting_clear'])
+        self.assertEqual(self.arm.commands, ['PLASTIC'])
+        self.arm.finish()
+        self.assertTrue(self.result(metal))
+        self.arm.finish()
+        self.assertEqual(self.arm.commands, ['PLASTIC', 'METAL'])
+        self.assertEqual(self.bridge.counts['METAL'], 1)
+        self.assertFalse(self.result(metal))
+
+    def test_physical_mode_still_requires_explicit_start_and_clear(self):
+        arm = FakeArm()
+        bridge = Bridge(arm, simulation=False, clock=lambda: self.now)
+        bridge.camera_frame((b'frame', 'image/jpeg'))
+        bridge.home()
+        self.assertFalse(bridge.enabled)
+        bridge.set_sorting(True)
+        ticket = bridge.begin_prediction()
+        self.assertTrue(bridge.accept_prediction(ticket, prediction()))
+        arm.finish()
+        self.now += .1
+        bridge.camera_frame((b'next', 'image/jpeg'))
+        ticket = bridge.begin_prediction()
+        self.assertFalse(bridge.accept_prediction(ticket, prediction(label='Metal can', bin='METAL')))
+        self.assertEqual(arm.commands, ['PLASTIC'])
 
     def test_history_uses_accepted_item_and_deduplicates_done(self):
         self.result()
@@ -119,7 +149,6 @@ class BridgeTests(unittest.TestCase):
         ticket = self.bridge.begin_prediction()
         self.bridge.stop()
         self.bridge.home()
-        self.bridge.set_sorting(True)
         self.assertFalse(self.bridge.accept_prediction(ticket, prediction()))
         self.assertEqual(self.arm.commands, [])
         self.assertEqual(self.bridge.counts['PLASTIC'], 0)
@@ -132,9 +161,8 @@ class BridgeTests(unittest.TestCase):
         self.assertIsNotNone(self.bridge.snapshot()['camera_error'])
         self.bridge.camera_frame((b'new', 'image/jpeg'))
         self.assertIsNone(self.bridge.snapshot()['camera_error'])
-        self.assertEqual(self.bridge.snapshot()['status'], 'Camera feed restored. Sorting remains paused.')
-        self.assertFalse(self.bridge.enabled)
-        self.bridge.set_sorting(True)
+        self.assertEqual(self.bridge.snapshot()['status'], 'Camera feed restored. Automatic sorting ready.')
+        self.assertTrue(self.bridge.enabled)
         ticket = self.bridge.begin_prediction()
         self.bridge.set_sorting(False)
         self.assertFalse(self.bridge.accept_prediction(ticket, prediction()))
@@ -178,6 +206,14 @@ class BridgeTests(unittest.TestCase):
         self.bridge.prediction_failed(self.bridge.begin_prediction())
         self.assertFalse(self.bridge.enabled)
         self.assertEqual(self.bridge.counts, {'PAPER': 0, 'PLASTIC': 0, 'METAL': 0, 'ORGANIC': 0})
+
+    def test_temporary_prediction_error_keeps_simulated_sorting_armed(self):
+        ticket = self.bridge.begin_prediction()
+        self.bridge.prediction_failed(ticket, 'Gemini temporarily unavailable', retryable=True)
+        self.assertTrue(self.bridge.enabled)
+        self.assertIn('Retrying automatically', self.bridge.status)
+        self.assertFalse(self.bridge.accept_prediction(ticket, prediction()))
+        self.assertIsNotNone(self.bridge.begin_prediction())
 
     def test_stop_does_not_hold_lock_while_waiting_for_callback(self):
         def threaded_stop():

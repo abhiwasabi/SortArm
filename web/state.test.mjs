@@ -145,22 +145,37 @@ test("a supported classifier decision can be displayed without fabricating confi
 });
 
 test('completed sort waits for clear instead of claiming identification is pending', () => {
-  const state = normalizeState({label:'UNKNOWN', awaiting_clear:true, sorting_enabled:true,
+  const state = normalizeState({label:'UNKNOWN', awaiting_clear:true, sorting_enabled:true, simulation:true,
     recent_sorts:[{id:'one',label:'Plastic bottle',bin:'PLASTIC',completed_at:new Date().toISOString()}]});
   const result = derivePrediction(state, {backendOnline:true, cameraOnline:true});
   assert.equal(result.kind, 'completed');
-  assert.equal(result.label, 'Checking pickup area…');
-  assert.match(result.note, /pickup area is empty/);
+  assert.equal(result.label, 'Checking for a new item…');
+  assert.match(result.note, /different item/);
   assert.equal(result.bin, null);
 });
 
 test('fresh plastic result replaces old metal label while duplicate-sort protection is active', () => {
   const now = Date.now();
-  const state = normalizeState({label:'Plastic bottle', bin:'PLASTIC', prediction_at:new Date(now).toISOString(),
+  const state = normalizeState({label:'Plastic bottle', bin:'PLASTIC', prediction_at:new Date(now).toISOString(), simulation:true,
     awaiting_clear:true, sorting_enabled:true,
     recent_sorts:[{id:'can',label:'Metal can',bin:'METAL',completed_at:new Date(now-1000).toISOString()}]});
   const result = derivePrediction(state, {backendOnline:true,cameraOnline:true,now});
   assert.equal(result.label,'Plastic bottle');
   assert.equal(result.bin,null);
-  assert.match(result.note,/waiting for an empty pickup area/);
+  assert.match(result.note,/Show a different item/);
+});
+
+test('physical sorting still asks for a clear pickup area', () => {
+  const now = Date.now();
+  const state = normalizeState({label:'Metal can', bin:'METAL', prediction_at:new Date(now).toISOString(),
+    awaiting_clear:true, sorting_enabled:true, simulation:false});
+  const result = derivePrediction(state, {backendOnline:true,cameraOnline:true,now});
+  assert.match(result.note,/empty pickup area/);
+});
+
+test('temporary recognition outage shows automatic retry status', () => {
+  const state = normalizeState({label:'UNKNOWN', sorting_enabled:true, vision_ready:true,
+    status:'Gemini is temporarily unavailable (HTTP 503). Retrying automatically.'});
+  const result = derivePrediction(state, {backendOnline:true,cameraOnline:true});
+  assert.match(result.note,/Retrying automatically/);
 });

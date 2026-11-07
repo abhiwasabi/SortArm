@@ -40,6 +40,8 @@ class Bridge:
         self.pending_sort = None
         self.recent_sorts = []
         self.simulation = simulation
+        self.continuous_sorting = simulation
+        self.auto_sort_armed = simulation
         self.mock_camera = mock_camera
         self.mock_available = mock_camera if mock_available is None else mock_available
         self.camera_source = camera_source or ('mock' if mock_camera else 'usb')
@@ -51,10 +53,11 @@ class Bridge:
         self.max_age = max_age
         self.prediction_max_age = prediction_max_age
         self.lock = threading.RLock()
-        self.enabled = False
+        self.enabled = simulation and vision_ready
         self.epoch = 0
         self.awaiting_clear = False
         self.empty_samples = 0
+        self.last_sorted_signature = None
         self.last_evaluated_frame = None
         self.counts = dict.fromkeys(BINS, 0)
         self.prediction = None
@@ -63,7 +66,8 @@ class Bridge:
         self.camera_error = None
         self.camera_switches_pending = 0
         self.camera_switching = False
-        self.status = 'Home the arm, then start sorting.'
+        self.status = ('Home the arm; automatic sorting starts when ready.' if simulation
+                       else 'Home the arm, then start sorting.')
         self.arm.on_state(self.on_state)
 
     def on_state(self, state, detail):
@@ -78,6 +82,7 @@ class Bridge:
             elif state == 'ERROR':
                 self.pending_sort = None
                 self.enabled = False
+                self.auto_sort_armed = False
                 self.invalidate('Arm needs attention: ' + str(detail))
 
     def invalidate(self, message):
@@ -93,7 +98,9 @@ class Bridge:
             self.frame = frame
             self.frame_at = self.clock()
             if self.camera_error is not None and self.status == self.camera_error:
-                self.status = 'Camera feed restored. Sorting remains paused.'
+                self.enabled = self.auto_sort_armed and self.vision_ready
+                self.status = ('Camera feed restored. Automatic sorting ready.' if self.enabled
+                               else 'Camera feed restored. Sorting remains paused.')
             self.camera_error = None
 
     def camera_lost(self, reason='Camera unavailable. Sorting paused.'):
@@ -125,7 +132,7 @@ class Bridge:
 
     def set_camera_source(self, name, url=None, *, index=0, vision_ready=True):
         with self.lock:
-            self.enabled = False
+            self.enabled = self.auto_sort_armed and vision_ready and name != 'off'
             self.camera_source = name
             self.camera_url = url
             self.camera_index = index
@@ -137,7 +144,8 @@ class Bridge:
             self.camera_switches_pending = max(0, self.camera_switches_pending - 1)
             self.camera_switching = self.camera_switches_pending > 0
             self.last_evaluated_frame = None
-            self.invalidate('Camera source changed. Sorting paused.')
+            self.invalidate('Camera source changed. Automatic sorting ready.' if self.enabled
+                            else 'Camera source changed. Sorting paused.')
 
     def fresh_frame(self):
         return self.frame_at is not None and self.clock() - self.frame_at <= self.max_age
@@ -155,35 +163,46 @@ class Bridge:
             if enabled and (self.arm.state != 'READY' or not self.arm.connected or not self.fresh_frame()):
                 raise ValueError('Start requires a homed, connected arm and a current camera frame')
             self.enabled = enabled
+            if self.continuous_sorting:
+                self.auto_sort_armed = enabled
             self.invalidate('Sorting enabled.' if enabled else 'Sorting paused. Current motion can finish; use STOP to interrupt.')
 
     def home(self):
         with self.lock:
-            self.enabled = False
-            self.invalidate('Homing requested. Sorting remains paused.')
+            if self.continuous_sorting:
+                self.auto_sort_armed = True
+            self.enabled = self.auto_sort_armed and self.vision_ready and self.camera_source != 'off'
+            self.invalidate('Homing requested. Automatic sorting will start when ready.' if self.enabled
+                            else 'Homing requested. Sorting remains paused.')
             return self.arm.home()
 
     def stop(self):
         with self.lock:
             self.enabled = False
+            self.auto_sort_armed = False
             self.invalidate('STOP requested. Home the arm before resuming.')
         # Never wait for a worker callback while holding the bridge lock.
         return self.arm.stop()
 
     def begin_prediction(self):
         with self.lock:
-            if (not self.enabled or self.camera_switching or not self.vision_ready or self.arm.state != 'READY'
-                    or not self.arm.connected or not self.fresh_frame()):
+            arm_can_classify = self.arm.state == 'READY' or (self.continuous_sorting
+                                and self.arm.state == 'BUSY' and self.pending_sort is not None)
+            if (not self.enabled or self.camera_switching or not self.vision_ready
+                    or not arm_can_classify or not self.arm.connected or not self.fresh_frame()):
                 return None
             age = self.clock() - self.frame_at
             timestamp = (datetime.now(timezone.utc) - timedelta(seconds=age)).isoformat()
             return self.epoch, self.frame_at, timestamp, self.frame
 
-    def prediction_failed(self, ticket, reason=None):
+    def prediction_failed(self, ticket, reason=None, *, retryable=False):
         with self.lock:
             if ticket[0] == self.epoch:
-                self.enabled = False
-                self.invalidate(reason or 'Prediction unavailable. Check the camera/API and restart sorting.')
+                if not (retryable and self.continuous_sorting and self.auto_sort_armed):
+                    self.enabled = False
+                    self.auto_sort_armed = False
+                message = reason or 'Prediction unavailable. Check the camera/API and restart sorting.'
+                self.invalidate(message + ' Retrying automatically.' if self.enabled else message)
 
     def accept_prediction(self, ticket, raw):
         result = validate_prediction(raw)
@@ -193,8 +212,10 @@ class Bridge:
                 self.enabled = False
                 self.invalidate('Classification arrived too late. Keep the item still and restart sorting.')
                 return False
+            arm_can_classify = self.arm.state == 'READY' or (self.continuous_sorting
+                                and self.arm.state == 'BUSY' and self.pending_sort is not None)
             if (epoch != self.epoch or not self.enabled or not self.arm.connected
-                    or self.arm.state != 'READY' or not self.fresh_frame()
+                    or not arm_can_classify or not self.fresh_frame()
                                         or captured_at == self.last_evaluated_frame):
                 return False
             self.last_evaluated_frame = captured_at
@@ -203,20 +224,35 @@ class Bridge:
                 self.empty_samples += 1
                 if self.empty_samples >= 2:
                     self.awaiting_clear = False
+                    self.last_sorted_signature = None
                 self.status = 'Pickup area empty.'
                 return False
             self.empty_samples = 0
-            if (self.awaiting_clear or result['needs_review'] or result['bin'] is None
+            if (result['needs_review'] or result['bin'] is None
                     or result['label'].upper() == 'UNKNOWN'
                     or (result['confidence'] is not None and result['confidence'] < .8)):
-                self.status = 'Waiting for pickup area to clear.' if self.awaiting_clear else 'Item needs review; no motion requested.'
+                self.status = 'Item needs review; no motion requested.'
                 return False
+            signature = (result['label'].casefold(), result['bin'])
+            if self.continuous_sorting and signature == self.last_sorted_signature:
+                self.awaiting_clear = True
+                self.status = 'Already sorted this item. Show a different item.'
+                return False
+            if not self.continuous_sorting and self.awaiting_clear:
+                self.status = 'Waiting for pickup area to clear.'
+                return False
+            self.awaiting_clear = False
             if result['bin'] not in self.allowed_bins:
+                return False
+            if self.arm.state != 'READY' or self.pending_sort is not None:
+                self.status = 'New item detected. Waiting for the arm to finish.'
                 return False
             self.pending_sort = dict(id=str(uuid.uuid4()), label=result['label'], bin=result['bin'])
             accepted = self.arm.sort(result['bin'])
             if accepted:
                 self.awaiting_clear = True
+                if self.continuous_sorting:
+                    self.last_sorted_signature = signature
                 self.epoch += 1
                 self.status = 'Sorting into ' + result['bin'] + '.'
             else:

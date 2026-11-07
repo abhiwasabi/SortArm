@@ -61,11 +61,12 @@ def connect_gemini(manager, body):
             raise ValueError('The models listed for this project could not serve requests. Check the project API access and try again.')
         raise ValueError('Gemini generation check failed. ' + (last_error or 'No model responded.'))
     with manager.bridge.lock:
-        manager.bridge.enabled = False
         manager.predictor = predictor
         manager.bridge.vision_ready = True
+        manager.bridge.enabled = manager.bridge.auto_sort_armed and manager.name != 'off'
         manager.bridge.last_evaluated_frame = None
-        manager.bridge.invalidate('Gemini connected. Sorting remains paused.')
+        manager.bridge.invalidate('Gemini connected. Automatic sorting ready.' if manager.bridge.enabled
+                                  else 'Gemini connected. Sorting remains paused.')
     return gemini_status(manager)
 
 
