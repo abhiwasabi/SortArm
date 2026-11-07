@@ -10,7 +10,7 @@ From the repository root, run:
 python3 -m http.server 4173 --directory web
 ```
 
-Open `http://localhost:4173/?demo=1`. The amber **DEMO MODE** badge and scenario buttons make sample data explicit. The Stop button changes only the sample state; it does not contact the ESP32 or API.
+Open `http://localhost:4173/?demo=1`. This shows a fixed sample bottle and counts so the layout can be reviewed before the backend is running. The system status says **Previewing sample data**. The Stop button does not contact hardware or the API in this preview.
 
 ## Use with the laptop backend
 
@@ -18,7 +18,7 @@ Ana's backend should serve `web/` at the same origin as these endpoints:
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/state` | Current prediction, ESP32 state, connection, and confirmed counts |
+| `GET /api/state` | Current prediction, arm state, connection, and confirmed counts |
 | `GET /api/frame.jpg` | Latest pickup-camera JPEG frame |
 | `POST /api/stop` | Request STOP; the dashboard waits for state before claiming the arm stopped |
 
@@ -40,7 +40,7 @@ Example state:
 
 If the camera endpoint fails or no new frame loads for several seconds, the dashboard hides the last prediction and route. A successful Stop request means only that the request reached the backend; the dashboard waits for a controller state update and warns if none arrives.
 
-The dashboard never increments counts itself. The backend should update counts only after the ESP32 reports DONE. For live use, open the backend's dashboard URL without `?demo=1`; serving this folder on a separate port will show the API as offline unless the backend also serves the API on that origin.
+The dashboard never increments counts itself. The backend should update counts only after the arm controller reports DONE. For live use, open the backend's dashboard URL without `?demo=1`; serving this folder on a separate port will show the API as offline unless the backend also serves the API on that origin. The Settings view shows the API and arm connection status, while the camera connection status appears below Pickup area.
 
 ## Dashboard checks
 

@@ -82,7 +82,7 @@ export function derivePrediction(state, options = {}) {
     bin: state.bin,
     note: state.predictionAt === null
       ? "Latest API response. Capture time was not supplied."
-      : "Recent prediction from the pickup camera."
+      : "Detection from the pickup camera."
   };
 }
 

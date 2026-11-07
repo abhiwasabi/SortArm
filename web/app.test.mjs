@@ -63,7 +63,7 @@ test('slow frames survive state polls and retry after the frame deadline', async
   await retry;
   assert.equal(h.element('cameraFrame').writes, 2);
   h.element('cameraFrame').listeners.load();
-  assert.equal(h.element('cameraStatus').textContent, 'Available');
+  assert.equal(h.element('cameraStatus').textContent, 'Connected');
 });
 
 test('STOP ignores pre-POST state requests and unrecognized controller states', async () => {
@@ -75,11 +75,11 @@ test('STOP ignores pre-POST state requests and unrecognized controller states', 
   await stop;
   await h.respond(1, { ...sample, arm_state: 'READY' });
   await oldPoll;
-  assert.match(h.element('notice').textContent, /Waiting for the ESP32/);
+  assert.match(h.element('notice').textContent, /Waiting for the arm controller/);
   const unknownPoll = h.run('pollState()');
   await h.respond(3, { ...sample, arm_state: 'INVALID' });
   await unknownPoll;
-  assert.match(h.element('notice').textContent, /Waiting for the ESP32/);
+  assert.match(h.element('notice').textContent, /Waiting for the arm controller/);
   const readyPoll = h.run('pollState()');
   await h.respond(4, { ...sample, arm_state: 'READY' });
   await readyPoll;

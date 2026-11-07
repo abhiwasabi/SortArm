@@ -2,40 +2,33 @@ import { derivePrediction, formatCount, normalizeState } from "./state.mjs";
 
 const byId = (id) => document.getElementById(id);
 const ui = {
-  modeBadge: byId("modeBadge"),
   sessionStatus: byId("sessionStatus"),
   lastUpdate: byId("lastUpdate"),
   backendHealth: byId("backendHealth"),
   backendStatus: byId("backendStatus"),
-  espHealth: byId("espHealth"),
-  espStatus: byId("espStatus"),
+  armHealth: byId("armHealth"),
+  controllerStatus: byId("controllerStatus"),
   cameraHealth: byId("cameraHealth"),
   cameraStatus: byId("cameraStatus"),
+  previewSettingsNote: byId("previewSettingsNote"),
   notice: byId("notice"),
   cameraFrame: byId("cameraFrame"),
   frameFallback: byId("frameFallback"),
-  frameBadge: byId("frameBadge"),
-  frameSource: byId("frameSource"),
-  frameHint: byId("frameHint"),
-  detectionBadge: byId("detectionBadge"),
   itemLabel: byId("itemLabel"),
   predictionNote: byId("predictionNote"),
   confidenceValue: byId("confidenceValue"),
   confidenceMeter: byId("confidenceMeter"),
   confidenceFill: byId("confidenceFill"),
   binDecision: byId("binDecision"),
-  binMarker: byId("binMarker"),
   armBadge: byId("armBadge"),
   armState: byId("armState"),
   armDescription: byId("armDescription"),
   stopButton: byId("stopButton"),
   recycleCount: byId("recycleCount"),
-  trashCount: byId("trashCount"),
-  demoPanel: byId("demoPanel"),
-  scenarioButtons: byId("scenarioButtons")
+  trashCount: byId("trashCount")
 };
 
-const demoMode = new URLSearchParams(window.location.search).get("demo") === "1";
+const previewMode = new URLSearchParams(window.location.search).get("demo") === "1";
 const POLL_MS = 1200;
 const RETRY_MS = 3000;
 const REQUEST_TIMEOUT_MS = 3000;
@@ -49,7 +42,6 @@ let lastResponseAt = null;
 let stopPending = false;
 let awaitingStopState = false;
 let stopRequestedAt = null;
-let activeScenario = "ready";
 let frameRequestAt = null;
 let stateRequestSequence = 0;
 let stopMinimumSequence = 0;
@@ -74,18 +66,11 @@ function setNotice(message, tone = "info") {
 function showFrame(available) {
   ui.cameraFrame.hidden = !available;
   ui.frameFallback.hidden = available;
-  if (!available) {
-    ui.frameBadge.textContent = "FRAME UNAVAILABLE";
-    ui.frameSource.textContent = "NO FRAME";
-  } else {
-    ui.frameBadge.textContent = demoMode ? "SAMPLE FRAME" : "CAMERA AVAILABLE";
-    ui.frameSource.textContent = demoMode ? "DEMO IMAGE" : "LATEST FRAME";
-  }
 }
 
 function renderArm() {
   let label = "Waiting";
-  let description = "Checking the ESP32 connection.";
+  let description = "Checking the arm connection.";
   let tone = "neutral";
   let badge = "UNKNOWN";
 
@@ -96,7 +81,7 @@ function renderArm() {
     badge = "API OFFLINE";
   } else if (!snapshot?.connected) {
     label = "Disconnected";
-    description = "ESP32 is not connected to the laptop.";
+    description = "The arm controller is not connected to the laptop.";
     tone = "bad";
     badge = "NO CONTROLLER";
   } else {
@@ -117,32 +102,28 @@ function renderArm() {
 }
 
 function render() {
-  if (!demoMode && cameraOnline && (lastFrameAt === null || Date.now() - lastFrameAt > FRAME_STALE_MS)) {
+  if (!previewMode && cameraOnline && (lastFrameAt === null || Date.now() - lastFrameAt > FRAME_STALE_MS)) {
     cameraOnline = false;
   }
-  ui.modeBadge.dataset.mode = demoMode ? "demo" : "live";
-  ui.modeBadge.innerHTML = '<span class="badge-dot"></span>' + (demoMode ? "DEMO MODE" : "LIVE SYSTEM");
-  ui.demoPanel.hidden = !demoMode;
-  ui.frameHint.textContent = demoMode
-    ? "Sample illustration · no camera or hardware connected"
-    : "Frame source: /api/frame.jpg";
 
   setHealth(ui.backendHealth, ui.backendStatus, backendOnline ? "good" : "bad",
-    backendOnline ? (demoMode ? "Sample data" : "Online") : "Offline");
-  setHealth(ui.espHealth, ui.espStatus, !backendOnline ? "waiting" : snapshot?.connected ? "good" : "bad",
-    !backendOnline ? "Unavailable" : snapshot?.connected ? "Connected" : "Disconnected");
-  setHealth(ui.cameraHealth, ui.cameraStatus, !backendOnline ? "waiting" : cameraOnline ? "good" : "bad",
-    !backendOnline ? "Unavailable" : cameraOnline ? (demoMode ? "Sample frame" : "Available") : "No frame");
+    backendOnline ? (previewMode ? "Preview data" : "Online") : "Offline");
+  ui.previewSettingsNote.hidden = !previewMode;
+  setHealth(ui.armHealth, ui.controllerStatus,
+    previewMode ? "waiting" : !backendOnline ? "waiting" : snapshot?.connected ? "good" : "bad",
+    previewMode ? "Preview data" : !backendOnline ? "Unavailable" : snapshot?.connected ? "Connected" : "Disconnected");
+  setHealth(ui.cameraHealth, ui.cameraStatus, cameraOnline ? "good" : "bad",
+    cameraOnline ? "Connected" : "Disconnected");
   showFrame(backendOnline && cameraOnline);
 
-  if (demoMode) {
+  if (previewMode) {
     ui.sessionStatus.textContent = "Previewing sample data";
     ui.lastUpdate.textContent = "No hardware commands are sent";
   } else if (!backendOnline) {
     ui.sessionStatus.textContent = "Dashboard API offline";
     ui.lastUpdate.textContent = "Waiting for /api/state";
   } else {
-    ui.sessionStatus.textContent = snapshot?.connected ? "System connected" : "ESP32 disconnected";
+    ui.sessionStatus.textContent = snapshot?.connected ? "System connected" : "Arm controller disconnected";
     ui.lastUpdate.textContent = "Last API response " + lastResponseAt.toLocaleTimeString();
   }
 
@@ -150,18 +131,8 @@ function render() {
     backendOnline,
     cameraOnline,
     now: Date.now(),
-    staleAfterMs: demoMode && activeScenario !== "stale" ? 86400000 : 8000
+    staleAfterMs: previewMode ? 86400000 : 8000
   });
-  const badgeMap = {
-    offline: ["OFFLINE", "bad"],
-    "camera-offline": ["NO CAMERA", "bad"],
-    empty: ["NO DATA", "neutral"],
-    stale: ["STALE", "warn"],
-    review: ["REVIEW", "warn"],
-    latest: ["LATEST RESPONSE", "warn"],
-    detected: ["RECENT", "good"]
-  };
-  setBadge(ui.detectionBadge, ...badgeMap[prediction.kind]);
   ui.itemLabel.textContent = prediction.label;
   ui.predictionNote.textContent = prediction.note;
   const percent = prediction.confidence === null ? null : Math.round(prediction.confidence * 100);
@@ -171,18 +142,16 @@ function render() {
   ui.confidenceMeter.setAttribute("aria-valuetext", percent === null ? "No confidence available" : percent + " percent");
   ui.binDecision.textContent = prediction.bin === "RECYCLE"
     ? "Recycle bin" : prediction.bin === "TRASH" ? "Trash bin" : "No route selected";
-  ui.binMarker.dataset.bin = prediction.bin ?? "none";
-  ui.binMarker.textContent = prediction.bin === "RECYCLE" ? "R" : prediction.bin === "TRASH" ? "T" : "—";
 
   renderArm();
-  ui.stopButton.disabled = stopPending || (!demoMode && !backendOnline);
+  ui.stopButton.disabled = stopPending || (!previewMode && !backendOnline);
   ui.stopButton.querySelector("span").textContent = stopPending ? "SENDING..." : "STOP ARM";
   ui.recycleCount.textContent = backendOnline && snapshot ? formatCount(snapshot.counts.RECYCLE) : "—";
   ui.trashCount.textContent = backendOnline && snapshot ? formatCount(snapshot.counts.TRASH) : "—";
 }
 
-function demoState(key) {
-  const base = {
+function setupPreview() {
+  const sample = {
     label: "Plastic bottle",
     confidence: 0.94,
     bin: "RECYCLE",
@@ -191,67 +160,16 @@ function demoState(key) {
     counts: { RECYCLE: 4, TRASH: 2 },
     prediction_at: new Date().toISOString()
   };
-  switch (key) {
-    case "trash":
-      return { ...base, label: "Snack wrapper", confidence: 0.91, bin: "TRASH" };
-    case "busy":
-      return { ...base, arm_state: "BUSY" };
-    case "done":
-      return { ...base, arm_state: "DONE", counts: { RECYCLE: 5, TRASH: 2 } };
-    case "unknown":
-      return { ...base, label: "UNKNOWN", confidence: 0.22, bin: null };
-    case "stale":
-      return { ...base, prediction_at: new Date(Date.now() - 30000).toISOString() };
-    case "error":
-      return { ...base, arm_state: "ERROR" };
-    case "esp-offline":
-      return { ...base, connected: false, arm_state: "ERROR" };
-    default:
-      return base;
-  }
-}
-
-const demoScenarios = [
-  ["ready", "Ready"], ["trash", "Trash item"], ["busy", "Sorting"],
-  ["done", "Completed"], ["unknown", "Unknown"], ["stale", "Stale"],
-  ["error", "Arm error"], ["esp-offline", "ESP32 offline"],
-  ["camera-offline", "Camera offline"], ["api-offline", "API offline"]
-];
-
-function selectDemoScenario(key) {
-  activeScenario = key;
-  backendOnline = key !== "api-offline";
-  cameraOnline = backendOnline && key !== "camera-offline";
-  snapshot = backendOnline ? normalizeState(demoState(key)) : null;
-  lastResponseAt = backendOnline ? new Date() : null;
-  if (cameraOnline) {
-    const sampleFrame = new URL(
-      key === "trash" ? "./assets/demo-wrapper.svg?v=2" : "./assets/demo-bottle.svg?v=2",
-      document.baseURI
-    ).href;
-    if (ui.cameraFrame.src !== sampleFrame) ui.cameraFrame.src = sampleFrame;
-  }
-  for (const button of ui.scenarioButtons.querySelectorAll("button")) {
-    button.setAttribute("aria-pressed", String(button.dataset.scenario === key));
-  }
-  setNotice("", "info");
-  render();
-}
-
-function setupDemo() {
-  for (const [key, label] of demoScenarios) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = label;
-    button.dataset.scenario = key;
-    button.addEventListener("click", () => selectDemoScenario(key));
-    ui.scenarioButtons.append(button);
-  }
+  backendOnline = true;
+  cameraOnline = true;
+  snapshot = normalizeState(sample);
+  lastResponseAt = new Date();
   ui.cameraFrame.addEventListener("error", () => {
     cameraOnline = false;
     render();
   });
-  selectDemoScenario("ready");
+  ui.cameraFrame.src = new URL("./assets/demo-bottle.svg?v=2", document.baseURI).href;
+  render();
 }
 
 function refreshLiveFrame() {
@@ -273,7 +191,7 @@ async function pollState() {
     lastResponseAt = new Date();
     if (awaitingStopState && requestSequence >= stopMinimumSequence) {
       if (!snapshot.connected) {
-        setNotice("ESP32 disconnected before STOP was confirmed. Use the physical power cutoff if needed.", "error");
+        setNotice("Arm controller disconnected before STOP was confirmed. Use the physical power cutoff if needed.", "error");
         awaitingStopState = false;
       } else if (["READY", "DONE", "ERROR"].includes(snapshot.armState)) {
         setNotice(
@@ -305,9 +223,8 @@ async function pollState() {
 
 async function requestStop() {
   if (stopPending) return;
-  if (demoMode) {
-    selectDemoScenario("error");
-    setNotice("Demo STOP requested. No command was sent to hardware.", "success");
+  if (previewMode) {
+    setNotice("Sample preview only. No command was sent to hardware.");
     return;
   }
   if (!backendOnline) {
@@ -331,7 +248,7 @@ async function requestStop() {
       awaitingStopState = false;
       setNotice("STOP was not confirmed after five seconds. Use the physical power cutoff if motion continues.", "error");
     }, STOP_CONFIRM_TIMEOUT_MS);
-    setNotice("STOP request sent. Waiting for the ESP32 to report its state.", "success");
+    setNotice("STOP request sent. Waiting for the arm controller to report its state.", "success");
   } catch {
     setNotice("STOP request failed. Use the physical servo power cutoff if the arm must stop.", "error");
   } finally {
@@ -342,8 +259,8 @@ async function requestStop() {
 }
 
 ui.stopButton.addEventListener("click", requestStop);
-if (demoMode) {
-  setupDemo();
+if (previewMode) {
+  setupPreview();
 } else {
   ui.cameraFrame.addEventListener("load", () => {
     frameRequestAt = null;
