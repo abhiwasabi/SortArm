@@ -1,0 +1,684 @@
+"""Contract tests for ArmController, run against MockBackend (no hardware)."""
+
+from __future__ import annotations
+
+import random
+import threading
+import time
+from pathlib import Path
+
+import pytest
+
+from arm import cli
+from arm import controller as controller_module
+from arm.backend import MockBackend
+from arm.cli import handle_line
+from arm.config import BODY_JOINTS, ArmConfig
+from arm.controller import ArmController, ArmState
+from arm.motion import MotionError, move_to
+from arm.poses import Poses, PosesError, demo_poses, load, save
+
+POSES = demo_poses()
+OPEN, CLOSED = POSES.grip("open"), POSES.grip("closed")
+HOME_START = {**POSES.body("home"), "gripper": OPEN}
+
+
+def fast_config(**overrides) -> ArmConfig:
+    """Fast settings so the mock tests run quickly. The safety ceilings are lifted for the mock only."""
+    cfg = ArmConfig(
+        speed_deg_s=5000.0,
+        gripper_speed=5000.0,
+        rate_hz=1000.0,
+        settle_timeout_s=0.2,
+        grip_dwell_s=0.0,
+        release_dwell_s=0.0,
+        speed_limit_deg_s=1e7,
+        gripper_speed_limit=1e7,
+        relative_target_limit=1e7,
+    )
+    for key, value in overrides.items():
+        setattr(cfg, key, value)
+    return cfg
+
+
+def make_arm(config: ArmConfig | None = None, **mock_kwargs):
+    backend = MockBackend(**mock_kwargs)
+    arm = ArmController(backend, POSES, config or fast_config())
+    states: list[ArmState] = []
+    arm.on_state(lambda state, detail: states.append(state))
+    return arm, backend, states
+
+
+def homed_arm(config: ArmConfig | None = None, **mock_kwargs):
+    mock_kwargs.setdefault("start", dict(HOME_START))
+    arm, backend, states = make_arm(config, **mock_kwargs)
+    assert arm.home()
+    assert arm.wait_idle(2)
+    assert arm.state is ArmState.READY
+    states.clear()
+    return arm, backend, states
+
+
+def at(position: dict, pose: str, tol: float = 0.01) -> bool:
+    body = POSES.body(pose)
+    return all(abs(position[j] - body[j]) <= tol for j in BODY_JOINTS)
+
+
+def wait_for(predicate, timeout: float = 3.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.002)
+    return False
+
+
+# ----- basic contract ---------------------------------------------------------------------------
+
+
+def test_starts_in_error_and_rejects_sort_until_homed():
+    arm, backend, states = make_arm()
+    assert arm.state is ArmState.ERROR
+    assert not arm.sort("PAPER")
+    assert "HOME" in arm.last_rejection
+    assert backend.writes == []  # rejected commands never move the arm
+    assert states == []
+
+
+def test_home_reports_busy_done_ready_and_opens_gripper():
+    arm, backend, states = make_arm()
+    assert arm.home()
+    assert arm.wait_idle(2)
+    assert states == [ArmState.BUSY, ArmState.DONE, ArmState.READY]
+    position = backend.read()
+    assert at(position, "home")
+    assert position["gripper"] == OPEN
+
+
+@pytest.mark.parametrize("bin_name", ["PAPER", "PLASTIC", "METAL", "ORGANIC", "paper"])
+def test_sort_runs_full_sequence_and_returns_home(bin_name):
+    arm, backend, states = homed_arm()
+    assert arm.sort(bin_name)
+    assert arm.wait_idle(2)
+    assert states == [ArmState.BUSY, ArmState.DONE, ArmState.READY]
+    above_bin = f"above_{bin_name.lower()}"
+    assert any(at(w, "pick") and w["gripper"] == CLOSED for w in backend.writes)
+    assert any(at(w, above_bin) and w["gripper"] == CLOSED for w in backend.writes)
+    assert any(at(w, above_bin) and w["gripper"] == OPEN for w in backend.writes)
+    assert at(backend.read(), "home")
+
+
+def test_sort_plan_order():
+    arm, _, _ = make_arm()
+    poses_and_grips = [step for step in arm.sort_plan("METAL") if step[0] != "pause"]
+    assert poses_and_grips == [
+        ("gripper", "open"),
+        ("pose", "above_pick"),
+        ("pose", "pick"),
+        ("gripper", "closed"),
+        ("pose", "above_pick"),
+        ("pose", "above_metal"),
+        ("gripper", "open"),
+        ("pose", "home"),
+    ]
+
+
+def test_unknown_bin_is_rejected_without_motion():
+    arm, backend, states = homed_arm()
+    writes_before = len(backend.writes)
+    assert not arm.sort("GLASS")
+    assert "unknown bin" in arm.last_rejection
+    assert len(backend.writes) == writes_before
+    assert states == []
+    assert arm.state is ArmState.READY
+
+
+def test_home_and_sort_return_immediately():
+    arm, _, _ = make_arm(fast_config(speed_deg_s=50.0))
+    t0 = time.monotonic()
+    assert arm.home()
+    assert time.monotonic() - t0 < 0.1
+    assert arm.state is ArmState.BUSY
+    arm.stop()
+
+
+def test_commands_while_busy_are_rejected():
+    arm, _, _ = homed_arm(fast_config(speed_deg_s=50.0))
+    assert arm.sort("PAPER")
+    assert arm.state is ArmState.BUSY
+    assert not arm.sort("METAL")
+    assert not arm.home()
+    arm.stop()
+    assert arm.wait_idle(2)
+
+
+# ----- gripper keeps squeezing (findings #1, #2) -----------------------------------------------
+
+
+def grasp_and_release_indexes(writes: list[dict], bin_pose: str) -> tuple[int, int]:
+    grasp = next(i for i, w in enumerate(writes) if at(w, "pick") and w["gripper"] == CLOSED)
+    release = next(i for i, w in enumerate(writes) if i > grasp and at(w, bin_pose) and w["gripper"] != CLOSED)
+    return grasp, release
+
+
+def test_every_carry_write_commands_closed_when_gripper_is_stalled():
+    # The gripper stalls on the item, so its present value never reaches "closed". Every goal sent
+    # between the grasp and the release must still say "closed", or the grip loosens.
+    arm, backend, _ = homed_arm(fast_config(speed_deg_s=500.0))
+    backend.stalled.add("gripper")
+    assert arm.sort("PAPER")
+    assert arm.wait_idle(3)
+    grasp, release = grasp_and_release_indexes(backend.writes, "above_paper")
+    assert all(w["gripper"] == CLOSED for w in backend.writes[grasp:release])
+
+
+def test_stop_while_carrying_keeps_the_gripper_closed():
+    arm, backend, _ = homed_arm(fast_config(speed_deg_s=40.0))
+    backend.stalled.add("gripper")  # stalled at "open": commanding the present value would let go
+    assert arm.sort("PAPER")
+    assert wait_for(lambda: any(at(w, "pick") and w["gripper"] == CLOSED for w in backend.writes))
+    time.sleep(0.3)  # carrying back up toward above_pick
+    assert arm.stop()
+    held = backend.writes[-1]
+    assert held["gripper"] == CLOSED
+    assert all(held[j] == backend.read()[j] for j in BODY_JOINTS)
+
+    # HOME afterwards starts from the held goal: no write before the release relaxes the grip.
+    assert arm.home() and arm.wait_idle(5)
+    after_stop = backend.writes[backend.writes.index(held):]
+    first_open = next(i for i, w in enumerate(after_stop) if w["gripper"] != CLOSED)
+    assert at(after_stop[first_open - 1], "home")
+
+
+# ----- STOP (findings #3, #4) -------------------------------------------------------------------
+
+
+def test_stop_mid_move_holds_position_and_requires_home():
+    arm, backend, states = homed_arm(fast_config(speed_deg_s=50.0))
+    assert arm.sort("METAL")
+    time.sleep(0.2)
+
+    assert arm.stop()
+    assert arm.state is ArmState.ERROR
+    assert arm.detail == "stopped"
+    held = backend.read()
+    assert backend.writes[-1] == held
+    assert not at(held, "home") and not at(held, "above_metal")
+
+    writes_after_stop = len(backend.writes)
+    time.sleep(0.1)
+    assert len(backend.writes) == writes_after_stop
+
+    assert not arm.sort("METAL")
+    assert arm.home() and arm.wait_idle(5)
+    assert arm.state is ArmState.READY
+
+
+def test_stop_while_idle_enters_error():
+    arm, backend, states = homed_arm()
+    writes_before = len(backend.writes)
+    assert arm.stop()
+    assert arm.state is ArmState.ERROR
+    assert arm.wait_idle(1)
+    assert states == [ArmState.ERROR]
+    assert len(backend.writes) == writes_before
+    assert not arm.sort("PAPER")
+    assert arm.stop() and arm.wait_idle(1)
+    assert states == [ArmState.ERROR]  # a second STOP reports nothing new
+
+
+def test_stop_racing_a_new_command_always_ends_in_error():
+    for _ in range(200):
+        arm, _, _ = homed_arm()
+        barrier = threading.Barrier(2)
+
+        def do_sort():
+            barrier.wait()
+            arm.sort("PAPER")
+
+        sorter = threading.Thread(target=do_sort)
+        sorter.start()
+        barrier.wait()
+        arm.stop()
+        sorter.join()
+        assert arm.wait_idle(2)
+        assert arm.state is ArmState.ERROR
+        arm.close()
+
+
+def test_stop_near_the_end_of_a_command_always_ends_in_error():
+    rng = random.Random(7)
+    for _ in range(100):
+        arm, _, _ = homed_arm()
+        done_before = arm.last_done
+        assert arm.sort("METAL")
+        time.sleep(rng.uniform(0.0, 0.02))
+        arm.stop()
+        assert arm.state is ArmState.ERROR  # even if the sort had already finished
+        assert arm.wait_idle(2)
+        assert arm.state is ArmState.ERROR
+        assert arm.last_done is None or arm.last_done[0] <= done_before[0] + 1
+        arm.close()
+
+
+# ----- completion reporting ---------------------------------------------------------------------
+
+
+def test_each_completed_command_is_reported_once():
+    arm, _, _ = homed_arm()
+    done: list[str] = []
+    arm.on_state(lambda state, detail: done.append(detail) if state is ArmState.DONE else None)
+    seq_after_home = arm.last_done[0]
+    assert arm.sort("PAPER") and arm.wait_idle(2)
+    assert arm.sort("METAL") and arm.wait_idle(2)
+    assert done == ["SORT PAPER", "SORT METAL"]
+    assert arm.last_done == (seq_after_home + 2, "SORT METAL")
+
+
+def test_stopped_sort_is_not_reported_done():
+    arm, _, _ = homed_arm(fast_config(speed_deg_s=50.0))
+    before = arm.last_done
+    done: list[str] = []
+    arm.on_state(lambda state, detail: done.append(detail) if state is ArmState.DONE else None)
+    assert arm.sort("PAPER")
+    time.sleep(0.1)
+    arm.stop()
+    assert arm.wait_idle(2)
+    assert done == []
+    assert arm.last_done == before
+
+
+# ----- listeners (finding #11) ------------------------------------------------------------------
+
+
+def test_listener_can_chain_the_next_sort():
+    arm, _, _ = homed_arm()
+    accepted: list[bool] = []
+    done: list[str] = []
+
+    def listener(state, detail):
+        if state is ArmState.DONE:
+            done.append(detail)
+        if state is ArmState.READY and not accepted:
+            accepted.append(arm.sort("METAL"))
+
+    arm.on_state(listener)
+    assert arm.sort("PAPER")
+    assert arm.wait_idle(2)
+    assert arm.wait_idle(2)  # the chained sort started from the listener
+    assert accepted == [True]
+    assert done == ["SORT PAPER", "SORT METAL"]
+
+
+def test_listener_stop_reports_a_single_error():
+    arm, _, states = homed_arm(fast_config(speed_deg_s=50.0))
+    arm.on_state(lambda state, detail: arm.stop() if state is ArmState.BUSY else None)
+    assert arm.sort("PAPER")
+    assert wait_for(lambda: arm.state is ArmState.ERROR)
+    assert arm.wait_idle(2)
+    assert states == [ArmState.BUSY, ArmState.ERROR]
+    assert arm.detail == "stopped"
+
+
+def test_listeners_never_run_on_the_worker_thread():
+    arm, _, _ = homed_arm()
+    threads: set[str] = set()
+    arm.on_state(lambda state, detail: threads.add(threading.current_thread().name))
+    assert arm.sort("PAPER") and arm.wait_idle(2)
+    assert threads == {"arm-notifier"}
+
+
+# ----- faults, connection, poll (findings #7, #9, #10, #15) ------------------------------------
+
+
+def test_joint_that_cannot_reach_its_goal_reports_error():
+    arm, backend, states = make_arm(stalled={"shoulder_lift"})
+    assert arm.home()
+    assert arm.wait_idle(2)
+    assert arm.state is ArmState.ERROR
+    assert "shoulder_lift" in arm.detail
+    assert arm.connected  # the arm answered; this is not a lost connection
+    assert states == [ArmState.BUSY, ArmState.ERROR]
+
+
+def test_settle_resends_a_slightly_clipped_goal():
+    # The arm lagged: the final goal (15 degrees away) was clipped to 10. Once the arm catches up to
+    # within the cap, settling re-sends the goal and the move completes.
+    backend = MockBackend(max_step=10.0)
+    goal = move_to(backend, None, {"shoulder_lift": -15.0}, fast_config(speed_deg_s=1e6, gripper_speed=1e6),
+                   threading.Event())
+    assert goal["shoulder_lift"] == -15.0
+    assert backend.read()["shoulder_lift"] == -15.0
+
+
+def test_settle_never_drives_a_far_goal_through_the_cap():
+    # A goal far beyond the cap (a bad pose, or a stale target) is clipped once and NOT re-sent, so the
+    # cap does not become a fast move: the arm stops 10 degrees along and the move fails, holding.
+    backend = MockBackend(max_step=10.0)
+    with pytest.raises(MotionError):
+        move_to(backend, None, {"shoulder_lift": -90.0}, fast_config(speed_deg_s=1e6, gripper_speed=1e6),
+                threading.Event())
+    assert backend.read()["shoulder_lift"] == -10.0
+
+
+def test_non_transport_error_is_not_reported_as_connection_lost():
+    arm, backend, _ = homed_arm()
+    backend.fail = ZeroDivisionError
+    assert arm.home()
+    assert arm.wait_idle(2)
+    assert arm.state is ArmState.ERROR
+    assert arm.detail.startswith("HOME failed")
+    assert arm.connected
+
+
+def test_poll_reports_connection_loss_and_recovery():
+    arm, backend, _ = homed_arm()
+    assert arm.poll() and arm.connected
+
+    backend.fail = ConnectionError
+    assert not arm.poll()
+    assert not arm.connected
+    assert arm.state is ArmState.ERROR
+    assert arm.detail.startswith("connection lost")
+    assert not arm.sort("PAPER")
+
+    backend.fail = None
+    assert arm.poll() and arm.connected
+    assert arm.state is ArmState.ERROR  # still needs an operator HOME
+    assert arm.home() and arm.wait_idle(2)
+    assert arm.state is ArmState.READY
+
+
+def test_connection_lost_during_a_move():
+    arm, backend, _ = homed_arm(fast_config(speed_deg_s=50.0))
+    assert arm.sort("METAL")
+    time.sleep(0.1)
+    backend.fail = ConnectionError
+    assert arm.wait_idle(2)
+    assert arm.state is ArmState.ERROR
+    assert not arm.connected
+    assert arm.detail.startswith("connection lost")
+
+
+def test_poll_during_a_move_does_not_touch_the_bus():
+    arm, backend, states = homed_arm(fast_config(speed_deg_s=50.0))
+    assert arm.sort("PAPER")
+    me = threading.current_thread().name
+    for _ in range(20):
+        assert arm.poll()
+    assert me not in backend.read_threads
+    assert arm.state is ArmState.BUSY
+    arm.stop()
+
+
+# ----- settings, construction, console (findings #6, #8, #12, #13) ----------------------------
+
+
+@pytest.mark.parametrize("field, value", [
+    ("speed_deg_s", -20.0), ("speed_deg_s", 0.0), ("gripper_speed", 0.0), ("rate_hz", float("nan")),
+    ("settle_timeout_s", 0.0), ("grip_dwell_s", -1.0),
+])
+def test_bad_settings_are_refused(field, value):
+    with pytest.raises(ValueError):
+        ArmController(MockBackend(), POSES, fast_config(**{field: value}))
+
+
+def test_partial_goal_is_refused():
+    with pytest.raises(ValueError):
+        MockBackend().write({"gripper": 10.0})
+
+
+def test_untaught_poses_are_refused():
+    template = load(Path(__file__).resolve().parents[1] / "poses.json")
+    assert "home" in template.missing()
+    with pytest.raises(PosesError):
+        ArmController(MockBackend(), template, fast_config())
+    with pytest.raises(PosesError):
+        ArmController(MockBackend(), Poses(poses=POSES.poses, gripper={"open": 50.0}), fast_config())
+
+
+def test_from_config_checks_poses_before_opening_the_port(tmp_path, monkeypatch):
+    opened: list[object] = []
+    monkeypatch.setattr(controller_module, "So101Backend", lambda config: opened.append(config))
+    config = fast_config(poses_path=tmp_path / "poses.json", port="COM99")
+    save(Poses(), config.poses_path)
+    with pytest.raises(PosesError):
+        ArmController.from_config(config)
+    assert opened == []
+
+
+def test_from_config_closes_the_backend_if_the_controller_fails(tmp_path, monkeypatch):
+    backend = MockBackend()
+    monkeypatch.setattr(controller_module, "So101Backend", lambda config: backend)
+    config = fast_config(poses_path=tmp_path / "poses.json", port="COM99")
+    save(POSES, config.poses_path)
+
+    def boom(self, *args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ArmController, "__init__", boom)
+    with pytest.raises(RuntimeError):
+        ArmController.from_config(config)
+    assert backend.closed
+
+
+def test_from_config_mock_uses_demo_poses_when_untaught(tmp_path):
+    config = fast_config(poses_path=tmp_path / "poses.json")
+    arm = ArmController.from_config(config, mock=True)
+    assert arm.home() and arm.wait_idle(2)
+    assert arm.state is ArmState.READY
+    arm.close()
+
+
+def test_cli_reports_a_bad_port_and_exits_2(monkeypatch, capsys):
+    def no_port(config, mock=False):
+        raise ConnectionError("Could not connect on port 'COM99'")
+
+    monkeypatch.setattr(cli.ArmController, "from_config", staticmethod(no_port))
+    assert cli.main(["--port", "COM99"]) == 2
+    assert "# Could not connect on port 'COM99'" in capsys.readouterr().err
+
+
+def test_text_protocol_lines():
+    arm, _, _ = make_arm()
+    assert handle_line(arm, "SORT PAPER") is not None  # not homed yet
+    assert handle_line(arm, "home") is None
+    assert arm.wait_idle(2)
+    assert handle_line(arm, "SORT GLASS").startswith("unknown bin")
+    assert handle_line(arm, "DANCE").startswith("unknown command")
+    assert handle_line(arm, "") is None
+    assert handle_line(arm, "sort metal") is None
+    assert arm.wait_idle(2)
+    assert handle_line(arm, "STOP") is None
+    assert arm.state is ArmState.ERROR
+
+
+# ----- second review round ----------------------------------------------------------------------
+
+
+def test_a_hung_stopped_command_never_resumes():
+    # A write hangs mid-sort. STOP gives up waiting ("arm not responding"). HOME must be refused
+    # while the stopped worker is alive, and when the bus recovers the old SORT must not continue.
+    config = fast_config(speed_deg_s=50.0, settle_timeout_s=0.1)
+    arm, backend, _ = homed_arm(config)
+    done: list[str] = []
+    arm.on_state(lambda state, detail: done.append(detail) if state is ArmState.DONE else None)
+    assert arm.sort("PAPER")
+    time.sleep(0.1)
+    backend.write_gate = threading.Event()  # the bus hangs
+
+    assert arm.stop()
+    assert arm.state is ArmState.ERROR
+    assert arm.detail == "stopped; arm not responding"
+    assert not arm.home()
+    assert "not ended" in arm.last_rejection
+
+    gate, backend.write_gate = backend.write_gate, None
+    gate.set()  # the bus recovers
+    assert arm.wait_idle(2)
+    assert arm.state is ArmState.ERROR
+    assert arm.home() and arm.wait_idle(5)
+    assert arm.state is ArmState.READY
+    assert done == ["HOME"]  # the stopped SORT never completed or counted
+
+
+def test_after_a_power_cut_moves_start_from_where_the_arm_really_is():
+    config = fast_config(speed_deg_s=600.0)
+    arm, backend, _ = homed_arm(config, max_step=10.0)
+    backend.fail = ConnectionError  # servo power cut
+    assert not arm.poll()
+    backend.move_by_hand("shoulder_lift", -30.0)  # the arm sags 60 degrees
+    backend.fail = None
+    assert arm.poll()
+
+    writes_before = len(backend.writes)
+    assert arm.home() and arm.wait_idle(5)
+    assert arm.state is ArmState.READY
+    first = backend.writes[writes_before]
+    assert abs(first["shoulder_lift"] - (-30.0)) < 2.0  # no jump back to the old -90 goal
+
+
+def test_close_refuses_new_commands_and_stops_motion():
+    arm, backend, _ = homed_arm(fast_config(speed_deg_s=50.0))
+    assert arm.sort("METAL")
+    time.sleep(0.1)
+    arm.close()
+    assert backend.closed
+    assert arm.state is ArmState.ERROR
+    writes = len(backend.writes)
+    time.sleep(0.1)
+    assert len(backend.writes) == writes  # nothing moves after close
+    assert not arm.home()
+    assert "closed" in arm.last_rejection
+    assert arm.wait_idle(1)  # does not hang after close
+    assert not arm.poll()
+
+
+def test_close_waits_for_a_command_chained_from_a_listener():
+    arm, backend, _ = homed_arm()
+    arm.on_state(lambda state, detail: arm.sort("METAL") if state is ArmState.READY else None)
+    assert arm.sort("PAPER")
+    time.sleep(0.005)
+    arm.close()
+    closed_at = len(backend.writes)
+    time.sleep(0.05)
+    assert len(backend.writes) == closed_at  # no worker kept writing after close
+
+
+def test_stop_does_not_override_a_command_accepted_after_it():
+    arm, _, states = homed_arm(fast_config(speed_deg_s=50.0))
+    homes: list[bool] = []
+    arm.on_state(lambda state, detail: homes.append(arm.home())
+                 if state is ArmState.ERROR and detail == "stopped" and not homes else None)
+    assert arm.sort("PAPER")
+    time.sleep(0.05)
+    arm.stop()
+    assert wait_for(lambda: bool(homes))
+    assert homes == [True]
+    assert arm.wait_idle(5)
+    assert arm.state is ArmState.READY
+    assert states[-3:] == [ArmState.BUSY, ArmState.DONE, ArmState.READY]
+
+
+@pytest.mark.parametrize("error", [KeyError, ValueError, RuntimeError])
+def test_poll_never_raises(error):
+    arm, backend, _ = homed_arm()
+    backend.fail = error
+    assert arm.poll()  # not a connection failure: still connected
+    assert arm.state is ArmState.ERROR
+    assert arm.detail.startswith("arm check failed")
+
+
+def test_stale_poll_result_never_overrides_a_newer_command():
+    arm, backend, states = homed_arm()
+    backend.read_gate = threading.Event()
+    backend.fail_once = ConnectionError
+    poller = threading.Thread(target=arm.poll)
+    poller.start()
+    time.sleep(0.05)  # poll is now blocked inside its read
+    assert arm.home()  # accepted; its worker waits for the bus
+    backend.read_gate.set()  # poll's read fails with a stale glitch
+    poller.join(2)
+    assert arm.wait_idle(2)
+    assert arm.connected
+    assert arm.state is ArmState.READY
+    assert ArmState.ERROR not in states
+
+
+@pytest.mark.parametrize("field, value", [
+    ("speed_deg_s", 2000.0), ("gripper_speed", 5000.0), ("max_relative_target", 1000.0),
+])
+def test_settings_above_the_safety_ceiling_are_refused(field, value):
+    with pytest.raises(ValueError, match="safety ceiling"):
+        ArmConfig(**{field: value}).validate()
+    ArmConfig().validate()  # the defaults are fine
+
+
+def test_states_print_as_bare_names():
+    assert str(ArmState.READY) == "READY"
+    assert f"{ArmState.BUSY}" == "BUSY"
+    assert ArmState.DONE == "DONE"
+
+
+def test_rejection_reasons_are_per_thread():
+    arm, _, _ = homed_arm(fast_config(speed_deg_s=50.0))
+    other: list[str | None] = []
+    rejected = threading.Event()
+    accepted = threading.Event()
+
+    def other_thread():
+        arm.sort("GLASS")
+        rejected.set()
+        accepted.wait(2)
+        other.append(arm.last_rejection)
+
+    t = threading.Thread(target=other_thread)
+    t.start()
+    rejected.wait(2)
+    assert arm.sort("PAPER")  # this thread's command is accepted
+    accepted.set()
+    t.join(2)
+    assert arm.last_rejection is None
+    assert other and other[0].startswith("unknown bin")
+    arm.stop()
+
+
+def test_console_polls_and_reports_a_lost_connection():
+    arm, backend, states = homed_arm()
+    stop_polling = cli.start_polling(arm, interval_s=0.02)
+    try:
+        backend.fail = ConnectionError
+        assert wait_for(lambda: arm.state is ArmState.ERROR, timeout=2)
+        assert arm.detail.startswith("connection lost")
+    finally:
+        stop_polling.set()
+
+
+def test_note_formatter_prefixes_every_line():
+    import logging
+    record = logging.LogRecord("arm", logging.WARNING, __file__, 1, "first\nsecond\n\nthird", None, None)
+    lines = cli.NoteFormatter().format(record).splitlines()
+    assert lines == ["# first", "# second", "# third"]
+
+
+# ----- four material bins (issue #23) ------------------------------------------------------------
+
+
+def test_the_four_material_bins_and_their_required_poses():
+    from arm.config import BINS
+    from arm.poses import REQUIRED_POSES
+
+    assert BINS == ("PAPER", "PLASTIC", "METAL", "ORGANIC")
+    for name in ("above_paper", "above_plastic", "above_metal", "above_organic"):
+        assert name in REQUIRED_POSES
+    template = load(Path(__file__).resolve().parents[1] / "poses.json")
+    assert set(template.poses) == set(REQUIRED_POSES)
+
+
+@pytest.mark.parametrize("old_bin", ["RECYCLE", "TRASH"])
+def test_the_old_two_bin_names_are_rejected_without_motion(old_bin):
+    arm, backend, _ = homed_arm()
+    writes = len(backend.writes)
+    assert not arm.sort(old_bin)
+    assert "unknown bin" in arm.last_rejection
+    assert len(backend.writes) == writes

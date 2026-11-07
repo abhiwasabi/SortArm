@@ -1,0 +1,15 @@
+{
+  "poses": {
+    "home": null,
+    "above_pick": null,
+    "pick": null,
+    "above_paper": null,
+    "above_plastic": null,
+    "above_metal": null,
+    "above_organic": null
+  },
+  "gripper": {
+    "open": null,
+    "closed": null
+  }
+}
