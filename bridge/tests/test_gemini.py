@@ -3,13 +3,36 @@ import json
 import unittest
 from unittest.mock import patch
 
-from bridge.adapters import GeminiPredictor
+from bridge.adapters import GeminiPredictor, recognition_frame
 
 
 class GeminiTests(unittest.TestCase):
     def response(self, result, finish='STOP'):
         return io.BytesIO(json.dumps({'candidates': [{'finishReason': finish,
             'content': {'parts': [{'text': json.dumps(result)}]}}]}).encode())
+
+    def test_flash_lite_uses_low_latency_settings(self):
+        raw = dict(label='Plastic bottle', item_present=True, needs_review=False, bin='PLASTIC')
+        with patch('urllib.request.urlopen', return_value=self.response(raw)) as request:
+            GeminiPredictor(key='test-key', model='gemini-3.5-flash-lite').predict((b'jpeg', 'image/jpeg'))
+        config = json.loads(request.call_args.args[0].data)['generationConfig']
+        self.assertEqual(config['thinkingConfig'], {'thinkingLevel': 'MINIMAL'})
+        self.assertEqual(config['mediaResolution'], 'MEDIA_RESOLUTION_LOW')
+
+    def test_cloud_image_is_smaller_without_changing_preview(self):
+        try:
+            import cv2
+            import numpy as np
+        except ImportError:
+            self.skipTest('Optional camera dependencies unavailable')
+        image = np.random.default_rng(7).integers(0, 256, (720, 960, 3), dtype=np.uint8)
+        _, encoded = cv2.imencode('.jpg', image)
+        preview = (encoded.tobytes(), 'image/jpeg')
+        result = recognition_frame(preview)
+        decoded = cv2.imdecode(np.frombuffer(result[0], dtype=np.uint8), cv2.IMREAD_COLOR)
+        self.assertEqual(max(decoded.shape[:2]), 512)
+        self.assertLess(len(result[0]), len(preview[0]))
+        self.assertEqual(cv2.imdecode(np.frombuffer(preview[0], dtype=np.uint8), cv2.IMREAD_COLOR).shape[:2], (720, 960))
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-only-key', 'GEMINI_MODEL': 'test-model'})
     def test_image_schema_and_secret_header_with_no_fabricated_confidence(self):
