@@ -104,15 +104,21 @@ export function derivePrediction(state, options = {}) {
   if (state.awaitingClear) {
     const fresh = state.predictionAt !== null && now - state.predictionAt <= staleAfterMs;
     const known = fresh && !["UNKNOWN", "EMPTY"].includes(state.label.toUpperCase());
-    return { kind: "completed", label: known ? state.label : "Checking pickup area…",
+    const continuous = state.simulation;
+    return { kind: "completed", label: known ? state.label :
+      continuous ? "Checking for a new item…" : "Checking pickup area…",
       confidence: known ? state.confidence : null, bin: null,
-      note: known ? "Latest camera result. Next sort is waiting for an empty pickup area; remove all items briefly before presenting the next one."
-        : "Waiting for Gemini to confirm the pickup area is empty. The previous sort is saved in history." };
+      note: continuous
+        ? known ? "This item was sorted. Show a different item to sort it next."
+          : "Waiting for a different item. The previous sort is saved in history."
+        : known ? "Latest camera result. The next sort needs an empty pickup area first."
+          : "Waiting for the pickup area to clear. The previous sort is saved in history." };
   }
   if (state.bridgeAvailable && state.predictionAt === null && state.label.toUpperCase() === "UNKNOWN") {
     return { kind: "waiting", label: state.sortingEnabled ? "Identifying item…" : "Recognition paused",
       confidence: null, bin: null,
       note: !state.visionReady ? "Connect Gemini in Settings to recognize items."
+        : state.status?.includes("Retrying automatically.") ? state.status
         : state.sortingEnabled ? "Waiting for Gemini. Keep one item clearly visible."
         : state.status || "Start sorting to request a classification." };
   }

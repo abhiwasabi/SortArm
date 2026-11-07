@@ -1,6 +1,6 @@
 # Laptop integration bridge (#16)
 
-Serves the existing dashboard and `/api/*` on one local origin. Camera capture, classification, and arm polling run on separate workers so a cloud request never owns the STOP path. Sorting starts paused and the arm must be homed by an operator.
+Serves the existing dashboard and `/api/*` on one local origin. Camera capture, classification, and arm polling run on separate workers so a cloud request never owns the STOP path. With a simulated arm, sorting arms automatically once the operator homes the arm and vision is ready. A physical arm still starts paused and requires an explicit Start sorting command.
 
 ## Arm package
 
@@ -15,11 +15,10 @@ The merged `arm/` package provides the controller and its mock. Run from the rep
 Open http://127.0.0.1:4173 (without `?demo=1`, which is the dashboard's separate static preview).
 
 1. In Overview or Arm status, click **Home arm** and wait for READY.
-2. Click **Start sorting**.
-3. In Settings, choose **Plastic bottle** under Simulated pickup area.
+2. In Settings, choose **Plastic bottle** under Simulated pickup area. Sorting starts automatically after HOME.
 4. Observe BUSY, then READY, and one plastic count. Leaving the bottle selected must not trigger another sort.
-5. Choose **Empty**, wait at least four seconds (two classification samples), then choose **Paper sheet** for a paper cycle.
-6. STOP pauses sorting and leaves ERROR. Home the arm and explicitly start sorting to recover.
+5. Choose **Paper sheet** directly for a paper cycle. A different supported item can sort without an empty-area step. The same item is not sorted again until two empty samples are seen.
+6. STOP pauses sorting and leaves ERROR. Home the simulated arm to recover and resume automatic sorting.
 
 The header always labels the simulated arm. Sample images are illustrations; the mock frame endpoint returns SVG with its correct media type. Live mode returns JPEG. Counts mean controller-completed sequences; they do not prove a successful physical grip or drop. Counts reset on process restart.
 
@@ -38,15 +37,15 @@ Set keys in your shell environment; never put them in `web/`, a URL, or Git. Thi
 
 The XIAO ESP32-S3 camera must first serve JPEG snapshots over local Wi-Fi. Follow [the XIAO camera setup guide](../docs/xiao-esp32s3-camera.md) to get a URL such as `http://192.168.1.50/capture`; USB serial alone does not expose a camera feed to this bridge.
 
-In dashboard **Settings**, choose **ESP32-S3 camera**, enter that snapshot URL, and click **Use this camera**. The selection changes at runtime. `GET /api/state` reports `camera_source`, `camera_url`, `camera_error`, `vision_ready`, and `mock_available`. `POST /api/camera` accepts `{"source":"esp32","url":"http://192.168.1.50/capture"}`; `{"source":"usb","index":0}` selects a laptop/USB camera, and `{"source":"mock"}` is available when the bridge was started with `--mock`. Switching sources pauses sorting and clears the previous frame and prediction.
+In dashboard **Settings**, choose **ESP32-S3 camera**, enter that snapshot URL, and click **Use this camera**. The selection changes at runtime. `GET /api/state` reports `camera_source`, `camera_url`, `camera_error`, `vision_ready`, and `mock_available`. `POST /api/camera` accepts `{"source":"esp32","url":"http://192.168.1.50/capture"}`; `{"source":"usb","index":0}` selects a laptop/USB camera, and `{"source":"mock"}` is available when the bridge was started with `--mock`. Switching sources clears the previous frame and prediction. Simulated-arm sorting resumes automatically when the new source and vision are ready.
 
-To preview ESP32 frames before Gemini is configured, start `python3 -m bridge --mock`, then select the ESP32 source in Settings. The arm stays simulated. **Start sorting** remains disabled for the real camera until `GEMINI_API_KEY` and `GEMINI_MODEL` are set before launch. With those variables set, that simulated-arm session can classify ESP32 frames when sorting is explicitly started. You can choose an initial ESP32 source at launch with `--esp32-url http://192.168.1.50/capture`.
+To preview ESP32 frames before Gemini is configured, start `python3 -m bridge --mock`, then select the ESP32 source in Settings. The arm stays simulated. Automatic sorting waits until Gemini is connected and the arm is homed. You can choose an initial ESP32 source at launch with `--esp32-url http://192.168.1.50/capture`.
 
 The ESP32 URL must use plain HTTP with a private or loopback IP address and return one JPEG per request. Redirects, credentials in the URL, invalid images, and oversized responses are rejected. Keep the dashboard bound to `127.0.0.1`.
 
 Demo policy: clearly visible plastic bottle → PLASTIC; paper sheet → PAPER; metal can → METAL; banana peel → ORGANIC; other items, ambiguity, multiple items, or obscured views → review/no movement. This is a selected-object demonstration, not a general recycling classifier. Coordinate policy/predictor changes with Abhi (#14). Gemini does not provide a calibrated detector probability here, so confidence remains null and the dashboard shows an em dash while displaying the validated bin.
 
-The adapter boundary is `predict(frame) -> {label, item_present, needs_review, bin, confidence?}`. `frame` contains bytes and MIME type. The bridge timestamps the source frame, discards results older than eight seconds for hardware or 30 seconds for a simulated arm or invalidated by STOP/pause/camera loss, checks READY/connected, and latches each accepted item until two distinct empty frames have been classified. Cloud failures pause sorting; no automatic cloud retry or motion retry occurs. False empty-area classifications can still rearm the system: evaluate that behavior during trials.
+The adapter boundary is `predict(frame) -> {label, item_present, needs_review, bin, confidence?}`. `frame` contains bytes and MIME type. The bridge timestamps the source frame and discards stale or invalidated results. In simulated-arm mode, a new supported label/bin can sort as soon as the arm is ready, even if the prior item was not cleared. An unchanged label/bin is suppressed until two distinct empty frames are classified. Physical-arm mode retains the empty-area latch. Simulated-arm mode retries temporary Gemini 5xx errors with increasing delay; other cloud failures pause sorting. STOP remains latched until HOME. False class changes can still trigger an unwanted simulated sort, so physical behavior remains gated pending trials.
 
 ## Physical arm (bench validation required)
 
@@ -121,9 +120,9 @@ Additional endpoints:
 - `POST /api/gemini` with `disconnect: true`: remove the session connection.
 
 The dashboard labels a pending classification separately from an unknown item. After a
-confirmed sort it shows the last sorted item while waiting for an empty pickup area.
-The UI displays EMPTY as Unknown item; the backend still uses empty-area detection to
-prevent duplicate sorts. Simulated arm mode remains explicitly labeled and does not
+confirmed sort it shows the latest classified item, while an unchanged item is not sorted again.
+The UI displays EMPTY as Unknown item; the backend uses two empty results to allow a
+repeat of the same item. Simulated arm mode remains explicitly labeled and does not
 operate physical hardware.
 
 Camera selection uses one dropdown: Laptop webcam, ESP32, or iPhone camera. Laptop and
