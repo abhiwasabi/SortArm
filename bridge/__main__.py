@@ -77,7 +77,8 @@ def main():
                 except Exception as exc:
                     message = prediction_error_message(exc)
                     print(message, flush=True)
-                    transient = isinstance(exc, urllib.error.HTTPError) and exc.code in (500, 502, 503, 504)
+                    transient = (isinstance(exc, urllib.error.HTTPError) and exc.code in (500, 502, 503, 504)
+                                 or isinstance(exc, (ValueError, KeyError, IndexError)))
                     bridge.prediction_failed(ticket, message, retryable=transient)
                     delay = retry_delay
                     retry_delay = min(retry_delay * 2, 30)
