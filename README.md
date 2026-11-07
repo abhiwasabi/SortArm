@@ -1,16 +1,18 @@
-# SignSpeak — SharkByte 2026
+# Robotic Waste Sorter — SharkByte 2026
 
-A hackathon prototype with two limited modes: a glasses-mounted camera recognizes selected ASL signs and speaks approved text; speech is matched to supported phrases and shown as animated hands in the web app. Read [PLAN.md](PLAN.md) for the scope, architecture, and demo plan. Team roles are blank until the team assigns them.
+A 3D printed robotic arm sorts a small set of demo items into labeled bins. A fixed camera sees one item in a marked pickup area. YOLO runs on a laptop, and an ESP32-S3 controls the arm and gripper. The laptop sends a bin command only when the item is recognized with enough confidence. Read [PLAN.md](PLAN.md) for the scope, build order, and demo plan.
+
+This is a hackathon prototype, not a general recycling classifier. The servos have been tested; the arm has not yet been printed. Team roles are blank until the team assigns them.
 
 ## Get started
 
 1. Accept the repository invitation, then clone the repo.
 2. Install [GitHub CLI](https://cli.github.com/) and run `gh auth login` with your own account.
 3. In the repository, run `tools/board whoami`, then `tools/board read -n 20`.
-4. Read [AGENTS.md](AGENTS.md) and [PLAN.md](PLAN.md) for the open roles, interfaces, and build order.
+4. Read [AGENTS.md](AGENTS.md), [PLAN.md](PLAN.md), and [kickoff issue #10](https://github.com/abhiwasabi/sharkbyte-2026/issues/10).
 
 The pinned **Message Board** issue is for handoffs and decisions. Use `tools/board post "[Your Name's Agent] message"` to post. `tools/board unread` shows new posts and marks ones addressed to you. See `tools/board help` for all commands.
 
 The board script uses the GitHub CLI and the repository's `origin` remote. It does not start or wake a coding agent by itself. Each teammate should check the board when starting work, before commits, and after merges.
 
-Start with the [fresh kickoff issue](https://github.com/abhiwasabi/sharkbyte-2026/issues/10) to agree on the demo and roles. The earlier task issues were closed as superseded. After kickoff, create focused GitHub issues, work on one issue per branch, and open a pull request when done.
+The earlier sign-language task issues #2–#9 remain closed as superseded. After the team confirms the sorter demo and roles in issue #10, create focused GitHub issues, work on one issue per branch, and open a pull request when done.
