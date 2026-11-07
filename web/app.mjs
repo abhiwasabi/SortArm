@@ -24,7 +24,11 @@ const ui = {
   armDescription: byId("armDescription"),
   stopButton: byId("stopButton"),
   recycleCount: byId("recycleCount"),
-  trashCount: byId("trashCount")
+  trashCount: byId("trashCount"),
+  historyStatus: byId("historyStatus"),
+  historyMessage: byId("historyMessage"),
+  sortHistory: byId("sortHistory"),
+  historyAnnouncement: byId("historyAnnouncement")
 };
 
 const previewMode = new URLSearchParams(window.location.search).get("demo") === "1";
@@ -44,6 +48,8 @@ let frameRequestAt = null;
 let stateRequestSequence = 0;
 let stopMinimumSequence = 0;
 let stopConfirmationTimer = null;
+let renderedHistoryKey = null;
+let latestHistoryId = null;
 
 function setHealth(container, label, health, value) {
   container.dataset.health = health;
@@ -99,6 +105,58 @@ function renderArm() {
   setBadge(ui.armBadge, badge, tone);
 }
 
+function renderHistory() {
+  const sorts = backendOnline ? snapshot?.recentSorts : null;
+  const mode = previewMode ? "sample" : !backendOnline ? "offline" : sorts === null ? "unavailable" : "live";
+  const key = JSON.stringify([mode, sorts]);
+  if (key === renderedHistoryKey) return;
+  renderedHistoryKey = key;
+
+  ui.historyStatus.textContent = mode.toUpperCase();
+  ui.historyStatus.dataset.tone = mode;
+  const messages = {
+    offline: "History is unavailable while the dashboard API is offline.",
+    unavailable: "Waiting for completed-sort records from the backend.",
+    live: "No completed sorts yet. Items appear after the arm finishes a drop.",
+    sample: "Sample history will appear here."
+  };
+  ui.historyMessage.textContent = messages[mode];
+  ui.historyMessage.hidden = Array.isArray(sorts) && sorts.length > 0;
+  ui.sortHistory.hidden = !Array.isArray(sorts) || sorts.length === 0;
+
+  const rows = [];
+  for (const sort of sorts ?? []) {
+    const row = document.createElement("li");
+    row.className = "history-row";
+    const icon = document.createElement("span");
+    icon.className = "history-icon";
+    icon.dataset.bin = sort.bin;
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = sort.bin === "RECYCLE" ? "↻" : "▥";
+    const item = document.createElement("strong");
+    item.className = "history-item";
+    item.textContent = sort.label;
+    const bin = document.createElement("span");
+    bin.className = "history-bin";
+    bin.dataset.bin = sort.bin;
+    bin.textContent = sort.bin === "RECYCLE" ? "Recycle bin" : "Trash bin";
+    const time = document.createElement("time");
+    time.className = "history-time";
+    time.dateTime = sort.completedAt;
+    time.textContent = new Date(sort.completedAt).toLocaleString(undefined,
+      { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    row.append(icon, item, bin, time);
+    rows.push(row);
+  }
+  ui.sortHistory.replaceChildren(...rows);
+  const newest = sorts?.[0];
+  if (!previewMode && newest && latestHistoryId !== null && newest.id !== latestHistoryId) {
+    ui.historyAnnouncement.textContent = newest.label + " sorted into " +
+      (newest.bin === "RECYCLE" ? "Recycle" : "Trash") + ".";
+  }
+  if (newest) latestHistoryId = newest.id;
+}
+
 function render() {
   if (!previewMode && cameraOnline && (lastFrameAt === null || Date.now() - lastFrameAt > FRAME_STALE_MS)) {
     cameraOnline = false;
@@ -139,6 +197,7 @@ function render() {
   ui.stopButton.querySelector("span").textContent = stopPending ? "SENDING..." : "STOP ARM";
   ui.recycleCount.textContent = backendOnline && snapshot ? formatCount(snapshot.counts.RECYCLE) : "—";
   ui.trashCount.textContent = backendOnline && snapshot ? formatCount(snapshot.counts.TRASH) : "—";
+  renderHistory();
 }
 
 function setupPreview() {
@@ -149,7 +208,11 @@ function setupPreview() {
     arm_state: "READY",
     connected: true,
     counts: { RECYCLE: 4, TRASH: 2 },
-    prediction_at: new Date().toISOString()
+    prediction_at: new Date().toISOString(),
+    recent_sorts: [
+      { id: "sample-2", label: "Plastic bottle", bin: "RECYCLE", completed_at: new Date(Date.now() - 120000).toISOString() },
+      { id: "sample-1", label: "Snack wrapper", bin: "TRASH", completed_at: new Date(Date.now() - 360000).toISOString() }
+    ]
   };
   backendOnline = true;
   cameraOnline = true;

@@ -16,12 +16,15 @@ function harness() {
   let now = 100000;
   let timerId = 0;
   class Clock extends Date { static now() { return now; } }
+  const makeElement = () => ({
+    dataset: {}, style: {}, listeners: {}, src: '', writes: 0, children: [],
+    setAttribute() {}, querySelector() { return this; },
+    addEventListener(name, fn) { this.listeners[name] = fn; },
+    append(...nodes) { this.children.push(...nodes); },
+    replaceChildren(...nodes) { this.children = nodes; }
+  });
   const element = id => {
-    if (!elements.has(id)) elements.set(id, {
-      dataset: {}, style: {}, listeners: {}, src: '', writes: 0,
-      setAttribute() {}, querySelector() { return this; },
-      addEventListener(name, fn) { this.listeners[name] = fn; }
-    });
+    if (!elements.has(id)) elements.set(id, makeElement());
     return elements.get(id);
   };
   Object.defineProperty(element('cameraFrame'), 'src', {
@@ -31,7 +34,7 @@ function harness() {
     derivePrediction, formatCount, normalizeState, Date: Clock,
     URLSearchParams, AbortController,
     window: { location: { search: '' } },
-    document: { getElementById: element },
+    document: { getElementById: element, createElement: makeElement },
     setTimeout(fn, ms) { timers.set(++timerId, { fn, ms }); return timerId; },
     clearTimeout(id) { timers.delete(id); },
     fetch(url) { return new Promise(resolve => requests.push({ url, resolve })); }
@@ -96,4 +99,44 @@ test('STOP warning deadline runs even while a state request is stalled', async (
   const deadline = [...h.timers.values()].find(timer => timer.ms === 5000);
   deadline.fn();
   assert.match(h.element('notice').textContent, /not confirmed after five seconds/);
+});
+
+test('history shows confirmed sorts once across repeated polls and prediction changes', async () => {
+  const h = harness();
+  const completed = { id: 'sort-1', label: 'Plastic bottle', bin: 'RECYCLE',
+    completed_at: '2026-11-07T05:31:00Z' };
+  const state = { ...sample, recent_sorts: [completed] };
+  await h.respond(0, state);
+  const list = h.element('sortHistory');
+  assert.equal(h.element('historyStatus').textContent, 'LIVE');
+  assert.equal(list.children.length, 1);
+  assert.equal(list.children[0].children[1].textContent, 'Plastic bottle');
+  const firstRow = list.children[0];
+
+  const repeatedPoll = h.run('pollState()');
+  await h.respond(1, { ...state, label: 'Snack wrapper', bin: 'TRASH' });
+  await repeatedPoll;
+  assert.equal(list.children.length, 1);
+  assert.equal(list.children[0], firstRow);
+
+  const second = { id: 'sort-2', label: 'Snack wrapper', bin: 'TRASH',
+    completed_at: '2026-11-07T05:32:00Z' };
+  const nextPoll = h.run('pollState()');
+  await h.respond(2, { ...state, recent_sorts: [second, completed] });
+  await nextPoll;
+  assert.equal(list.children.length, 2);
+  assert.equal(list.children[0].children[1].textContent, 'Snack wrapper');
+  assert.match(h.element('historyAnnouncement').textContent, /Snack wrapper sorted into Trash/);
+});
+
+test('history distinguishes absent records from API loss', async () => {
+  const h = harness();
+  await h.respond(0);
+  assert.equal(h.element('historyStatus').textContent, 'UNAVAILABLE');
+  assert.match(h.element('historyMessage').textContent, /Waiting for completed-sort records/);
+  const failedPoll = h.run('pollState()');
+  h.requests[1].resolve({ ok: false, status: 503 });
+  await failedPoll;
+  assert.equal(h.element('historyStatus').textContent, 'OFFLINE');
+  assert.match(h.element('historyMessage').textContent, /dashboard API is offline/);
 });

@@ -18,7 +18,7 @@ Ana's backend should serve `web/` at the same origin as these endpoints:
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/state` | Current prediction, arm state, connection, and confirmed counts |
+| `GET /api/state` | Current prediction, arm state, connection, confirmed counts, and optional recent sort history |
 | `GET /api/frame.jpg` | Latest pickup-camera JPEG frame |
 | `POST /api/stop` | Request STOP; the dashboard waits for state before claiming the arm stopped |
 
@@ -32,11 +32,17 @@ Example state:
   "arm_state": "READY",
   "connected": true,
   "counts": {"RECYCLE": 4, "TRASH": 2},
-  "prediction_at": "2026-11-07T05:30:00Z"
+  "prediction_at": "2026-11-07T05:30:00Z",
+  "recent_sorts": [
+    {"id": "sort-6", "label": "bottle", "bin": "RECYCLE", "completed_at": "2026-11-07T05:29:52Z"},
+    {"id": "sort-5", "label": "snack wrapper", "bin": "TRASH", "completed_at": "2026-11-07T05:28:11Z"}
+  ]
 }
 ```
 
 `prediction_at` is an optional ISO 8601 time for the latest *prediction*. If it is older than eight seconds, the dashboard hides that detection. Without it, the dashboard labels the value **Latest response**, never a live detection. It clears predictions when the API cannot be reached. Unknown items should use `label: "UNKNOWN"` and `bin: null`.
+
+`recent_sorts` is an optional, bounded list of completed sorts, newest first. Each entry has a stable `id`, the accepted item's `label`, its destination `bin`, and an ISO 8601 `completed_at` time. The backend should capture the label and bin when it accepts a sort, then append one entry when that command reports DONE, alongside incrementing the matching count. Predictions, rejected commands, STOP, and failed moves must not create history entries. If the field is omitted, the dashboard shows history as unavailable.
 
 If the camera endpoint fails or no new frame loads for several seconds, the dashboard hides the last prediction and route. A successful Stop request means only that the request reached the backend; the dashboard waits for a controller state update and warns if none arrives.
 
