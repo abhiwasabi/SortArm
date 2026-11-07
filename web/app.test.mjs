@@ -309,3 +309,13 @@ test('history distinguishes absent records from API loss', async () => {
   assert.equal(h.element('historyStatus').textContent, 'OFFLINE');
   assert.match(h.element('historyMessage').textContent, /dashboard API is offline/);
 });
+
+test('Start camera cannot fall back to index zero when the selected iPhone is unavailable', async () => {
+  const h = harness();
+  await h.respond(0, {...sample, camera_source:'off', sorting_enabled:false});
+  h.element('cameraSourceSelect').value='iphone';
+  h.element('usbCameraDevice').value='';
+  await h.element('toggleCameraButton').listeners.click();
+  assert.equal(h.requests.length,1);
+  assert.match(h.element('notice').textContent,/unavailable or still being detected/);
+});

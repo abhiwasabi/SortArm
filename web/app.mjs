@@ -420,6 +420,10 @@ async function bridgeCommand(path, body = {}) {
 async function applyCameraSource() {
   if (previewMode || controlPending || cameraChangePending || !backendOnline || !snapshot?.bridgeAvailable) return;
   const source = ui.cameraSourceSelect.value;
+  if (["usb", "iphone"].includes(source) && !ui.usbCameraDevice.value) {
+    setNotice("Selected camera is unavailable or still being detected. Refresh the camera list and try again.", "error");
+    return;
+  }
   const body = { source: source === "iphone" ? "usb" : source };
   if (source === "esp32") body.url = ui.esp32CameraUrl.value.trim();
   if (["usb", "iphone"].includes(source)) {

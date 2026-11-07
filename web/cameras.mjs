@@ -9,6 +9,7 @@ let requestSequence = 0;
 async function loadCameras({restoreActive = false} = {}) {
   const sequence = ++requestSequence;
   let kind = source.value;
+  select.value = '';
   refresh.disabled = true;
   apply.disabled = true;
   help.textContent = 'Looking for connected cameras…';
@@ -54,6 +55,7 @@ source.addEventListener('change', () => {
   if (source.value !== lastKind) {
     lastKind = source.value;
     if (['usb', 'iphone'].includes(lastKind)) loadCameras();
+    else { requestSequence += 1; refresh.disabled = false; }
   }
 });
 if (!previewMode) loadCameras({restoreActive: true});
