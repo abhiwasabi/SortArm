@@ -10,7 +10,7 @@ const sample = { label: 'Plastic bottle', confidence: .94, bin: 'PLASTIC',
   connected: true, arm_state: 'BUSY',
   counts: { PAPER: 3, PLASTIC: 4, METAL: 2, ORGANIC: 1 } };
 
-function harness() {
+function harness(search = '') {
   const elements = new Map();
   const requests = [];
   const timers = new Map();
@@ -18,8 +18,9 @@ function harness() {
   let timerId = 0;
   class Clock extends Date { static now() { return now; } }
   const makeElement = () => ({
-    dataset: {}, style: {}, listeners: {}, src: '', writes: 0, children: [],
+    dataset: {}, style: {}, listeners: {}, src: '', value: '', writes: 0, children: [],
     setAttribute() {}, querySelector() { return this; },
+    removeAttribute(name) { if (name === 'src') this.src = ''; },
     addEventListener(name, fn) { this.listeners[name] = fn; },
     append(...nodes) { this.children.push(...nodes); },
     replaceChildren(...nodes) { this.children = nodes; }
@@ -33,12 +34,12 @@ function harness() {
   });
   const context = vm.createContext({
     BIN_KEYS, derivePrediction, formatCount, normalizeState, Date: Clock,
-    URLSearchParams, AbortController,
-    window: { location: { search: '' } },
-    document: { getElementById: element, createElement: makeElement },
+    URL, URLSearchParams, AbortController,
+    window: { location: { search } },
+    document: { baseURI: 'http://127.0.0.1:4173/', getElementById: element, createElement: makeElement },
     setTimeout(fn, ms) { timers.set(++timerId, { fn, ms }); return timerId; },
     clearTimeout(id) { timers.delete(id); },
-    fetch(url) { return new Promise(resolve => requests.push({ url, resolve })); }
+    fetch(url, options) { return new Promise(resolve => requests.push({ url, options, resolve })); }
   });
   vm.runInContext(source, context);
   return {
@@ -61,13 +62,35 @@ test('slow frames survive state polls and retry after the frame deadline', async
   await h.respond(1);
   await poll;
   assert.equal(h.element('cameraFrame').writes, 1);
-  h.advance(4500);
+  h.advance(6500);
   const retry = h.run('pollState()');
   await h.respond(2);
   await retry;
   assert.equal(h.element('cameraFrame').writes, 2);
   h.element('cameraFrame').listeners.load();
   assert.equal(h.element('cameraStatus').textContent, 'Connected');
+});
+
+test('camera frames refresh between state polls without overlapping image requests', async () => {
+  const h = harness();
+  await h.respond(0, { ...sample, camera_source: 'esp32' });
+  const frame = h.element('cameraFrame');
+  assert.equal(frame.writes, 1);
+  frame.listeners.load();
+  const frameTimer = [...h.timers.values()].find(timer => timer.ms === 100);
+  assert.ok(frameTimer);
+
+  h.advance(300);
+  frameTimer.fn();
+  assert.equal(frame.writes, 2);
+  h.advance(300);
+  frameTimer.fn();
+  assert.equal(frame.writes, 2);
+  frame.listeners.load();
+  h.advance(300);
+  frameTimer.fn();
+  assert.equal(frame.writes, 3);
+  assert.equal(h.requests.length, 1);
 });
 
 test('STOP ignores pre-POST state requests and unrecognized controller states', async () => {
@@ -115,6 +138,107 @@ test('bridge controls reflect homing, simulation, and paused sorting', async () 
   await h.respond(1, {});
   await command;
   assert.equal(h.requests[1].url, '/api/home');
+});
+
+test('ESP32 camera settings load from the API and disable sorting without vision', async () => {
+  const h = harness();
+  await h.respond(0, { ...sample, arm_state: 'READY', sorting_enabled: false,
+    camera_source: 'esp32', camera_url: 'http://192.168.1.50/capture',
+    mock_available: true, mock_camera: false, vision_ready: false });
+  h.element('cameraFrame').listeners.load();
+  assert.equal(h.element('cameraSourceCard').hidden, false);
+  assert.equal(h.element('cameraSourceSelect').value, 'esp32');
+  assert.equal(h.element('esp32CameraUrl').value, 'http://192.168.1.50/capture');
+  assert.equal(h.element('esp32CameraFields').hidden, false);
+  assert.equal(h.element('sortingButton').disabled, true);
+  assert.match(h.element('cameraSourceStatus').textContent, /Preview only/);
+});
+
+test('an ESP32 capture error replaces a stale connected label with a useful reason', async () => {
+  const h = harness();
+  await h.respond(0, { ...sample, arm_state: 'READY', sorting_enabled: false,
+    camera_source: 'esp32', camera_url: 'http://192.168.1.50/capture',
+    mock_available: true, vision_ready: true });
+  h.element('cameraFrame').listeners.load();
+  assert.equal(h.element('cameraStatus').textContent, 'Connected');
+  const poll = h.run('pollState()');
+  await h.respond(1, { ...sample, arm_state: 'READY', sorting_enabled: false,
+    camera_source: 'esp32', camera_url: 'http://192.168.1.50/capture',
+    mock_available: true, vision_ready: true,
+    camera_error: 'ESP32 did not return a JPEG frame.' });
+  await poll;
+  assert.equal(h.element('cameraStatus').textContent, 'Disconnected');
+  assert.equal(h.element('cameraSourceStatus').textContent, 'ESP32 unavailable');
+  assert.equal(h.element('cameraSourceError').textContent, 'ESP32 did not return a JPEG frame.');
+  assert.equal(h.element('cameraSourceError').hidden, false);
+  assert.equal(h.element('sortingButton').disabled, true);
+
+  // A late load from the failed request cannot mark the old image as live.
+  h.element('cameraFrame').listeners.load();
+  assert.equal(h.element('cameraStatus').textContent, 'Disconnected');
+  const recoveryPoll = h.run('pollState()');
+  await h.respond(2, { ...sample, arm_state: 'READY', sorting_enabled: false,
+    camera_source: 'esp32', camera_url: 'http://192.168.1.50/capture',
+    mock_available: true, vision_ready: true });
+  await recoveryPoll;
+  assert.equal(h.element('cameraStatus').textContent, 'Disconnected');
+  assert.equal(h.element('cameraFrame').hidden, true);
+  h.element('cameraFrame').listeners.load();
+  assert.equal(h.element('cameraStatus').textContent, 'Connected');
+  assert.equal(h.element('cameraFrame').hidden, false);
+});
+
+test('a slower ESP32 frame remains connected during a normal capture cycle', async () => {
+  const h = harness();
+  await h.respond(0, { ...sample, camera_source: 'esp32' });
+  h.element('cameraFrame').listeners.load();
+  h.advance(5000);
+  const poll = h.run('pollState()');
+  await h.respond(1, { ...sample, camera_source: 'esp32' });
+  await poll;
+  assert.equal(h.element('cameraStatus').textContent, 'Connected');
+  h.advance(5001);
+  h.run('render()');
+  assert.equal(h.element('cameraStatus').textContent, 'Disconnected');
+});
+
+test('camera selection preserves an unfinished URL and posts the chosen source', async () => {
+  const h = harness();
+  const mockState = { ...sample, arm_state: 'READY', sorting_enabled: false,
+    camera_source: 'mock', mock_camera: true, mock_available: true, vision_ready: true };
+  await h.respond(0, mockState);
+  const select = h.element('cameraSourceSelect');
+  select.value = 'esp32';
+  select.listeners.change();
+  const url = h.element('esp32CameraUrl');
+  url.value = 'http://192.168.1.50/capture';
+  url.listeners.input();
+  const poll = h.run('pollState()');
+  await h.respond(1, mockState);
+  await poll;
+  assert.equal(select.value, 'esp32');
+  assert.equal(url.value, 'http://192.168.1.50/capture');
+  const command = h.run('applyCameraSource()');
+  assert.equal(h.requests[2].url, '/api/camera');
+  assert.equal(h.requests[2].options.method, 'POST');
+  assert.deepEqual(JSON.parse(h.requests[2].options.body),
+    { source: 'esp32', url: 'http://192.168.1.50/capture' });
+  assert.equal(h.element('applyCameraButton').disabled, true);
+  await h.respond(2, { accepted: true, state: { ...mockState,
+    camera_source: 'esp32', camera_url: 'http://192.168.1.50/capture',
+    mock_camera: false, vision_ready: false } });
+  await command;
+  assert.equal(h.element('cameraFrame').hidden, true);
+  assert.equal(h.element('mockControls').hidden, true);
+  assert.match(h.element('notice').textContent, /ESP32 camera selected/);
+});
+
+test('sample preview hides camera source controls and cannot change the server', async () => {
+  const h = harness('?demo=1');
+  assert.equal(h.element('cameraSourceCard').hidden, true);
+  h.element('cameraSourceSelect').value = 'esp32';
+  await h.run('applyCameraSource()');
+  assert.equal(h.requests.length, 0);
 });
 
 test('renders four material totals and every route even without a confidence score', async () => {

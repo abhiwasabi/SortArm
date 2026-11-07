@@ -55,12 +55,21 @@ export function normalizeState(raw) {
   const rawCounts = raw.counts && typeof raw.counts === "object" && !Array.isArray(raw.counts)
     ? raw.counts
     : {};
+  const cameraSource = ["mock", "usb", "esp32", "off"].includes(raw.camera_source)
+    ? raw.camera_source : raw.mock_camera === true ? "mock" : "usb";
 
   return {
     bridgeAvailable: typeof raw.sorting_enabled === "boolean",
     sortingEnabled: raw.sorting_enabled === true,
+    awaitingClear: raw.awaiting_clear === true,
     simulation: raw.simulation === true,
     mockCamera: raw.mock_camera === true,
+    mockAvailable: raw.mock_available === true || raw.mock_camera === true,
+    cameraSource,
+    cameraUrl: typeof raw.camera_url === "string" ? raw.camera_url.slice(0, 1024) : null,
+    cameraError: typeof raw.camera_error === "string" && raw.camera_error.trim()
+      ? raw.camera_error.trim().slice(0, 200) : null,
+    visionReady: raw.vision_ready !== false,
     status: typeof raw.status === "string" ? raw.status : "",
     armDetail: typeof raw.arm_detail === "string" ? raw.arm_detail : "",
     label,
@@ -92,12 +101,25 @@ export function derivePrediction(state, options = {}) {
     return { kind: "empty", label: "No current item", confidence: null, bin: null,
       note: "Waiting for the first prediction." };
   }
+  if (state.awaitingClear) {
+    const last = state.recentSorts?.[0];
+    return { kind: "completed", label: last?.label || "Item sorted", confidence: null, bin: null,
+      note: last ? `Sorted to ${last.bin.toLowerCase()}. Remove the item and leave the pickup area empty before showing the next item.`
+        : "Sort requested. Remove the item after the sort finishes, then show the next item." };
+  }
+  if (state.bridgeAvailable && state.predictionAt === null && state.label.toUpperCase() === "UNKNOWN") {
+    return { kind: "waiting", label: state.sortingEnabled ? "Identifying item…" : "Recognition paused",
+      confidence: null, bin: null,
+      note: !state.visionReady ? "Connect Gemini in Settings to recognize items."
+        : state.sortingEnabled ? "Waiting for Gemini. Keep one item clearly visible."
+        : state.status || "Start sorting to request a classification." };
+  }
   if (state.predictionAt !== null && now - state.predictionAt > staleAfterMs) {
     return { kind: "stale", label: "No current item", confidence: null, bin: null,
       note: "The last prediction is old. Waiting for a new camera result." };
   }
   if (state.label.toUpperCase() === "UNKNOWN" || state.bin === null) {
-    return { kind: "review", label: state.label === "UNKNOWN" ? "Unknown item" : state.label,
+    return { kind: "review", label: ["UNKNOWN", "EMPTY"].includes(state.label.toUpperCase()) ? "Unknown item" : state.label,
       confidence: state.confidence, bin: null,
       note: state.predictionAt === null
         ? "No supported bin decision. Capture time was not supplied."

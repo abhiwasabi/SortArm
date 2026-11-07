@@ -32,13 +32,20 @@ def validate_prediction(raw):
 
 
 class Bridge:
-    def __init__(self, arm, *, simulation=False, mock_camera=False, allowed_bins=BINS, clock=time.monotonic, max_age=8, prediction_max_age=8):
+    def __init__(self, arm, *, simulation=False, mock_camera=False, mock_available=None,
+                 camera_source=None, camera_url=None, camera_index=0, vision_ready=True,
+                 allowed_bins=BINS, clock=time.monotonic, max_age=8, prediction_max_age=8):
         self.arm = arm
         self.allowed_bins = tuple(allowed_bins)
         self.pending_sort = None
         self.recent_sorts = []
         self.simulation = simulation
         self.mock_camera = mock_camera
+        self.mock_available = mock_camera if mock_available is None else mock_available
+        self.camera_source = camera_source or ('mock' if mock_camera else 'usb')
+        self.camera_url = camera_url
+        self.camera_index = camera_index
+        self.vision_ready = vision_ready
         self.clock = clock
         self.max_age = max_age
         self.prediction_max_age = prediction_max_age
@@ -52,6 +59,9 @@ class Bridge:
         self.prediction = None
         self.frame = None
         self.frame_at = None
+        self.camera_error = None
+        self.camera_switches_pending = 0
+        self.camera_switching = False
         self.status = 'Home the arm, then start sorting.'
         self.arm.on_state(self.on_state)
 
@@ -77,15 +87,56 @@ class Bridge:
 
     def camera_frame(self, frame):
         with self.lock:
+            if self.camera_switching:
+                return
             self.frame = frame
             self.frame_at = self.clock()
+            if self.camera_error is not None and self.status == self.camera_error:
+                self.status = 'Camera feed restored. Sorting remains paused.'
+            self.camera_error = None
 
-    def camera_lost(self):
+    def camera_lost(self, reason='Camera unavailable. Sorting paused.'):
         with self.lock:
+            if self.camera_switching:
+                return
             self.frame = None
             self.frame_at = None
+            self.camera_error = reason
             self.enabled = False
-            self.invalidate('Camera unavailable. Sorting paused.')
+            self.invalidate(reason)
+
+    def prepare_camera_switch(self):
+        """Stop new predictions before waiting on a slow in-flight capture."""
+        with self.lock:
+            self.camera_switches_pending += 1
+            self.camera_switching = True
+            self.enabled = False
+            self.frame = None
+            self.frame_at = None
+            self.last_evaluated_frame = None
+            self.invalidate('Camera source change requested. Sorting paused.')
+
+    def cancel_camera_switch(self):
+        with self.lock:
+            self.camera_switches_pending = max(0, self.camera_switches_pending - 1)
+            self.camera_switching = self.camera_switches_pending > 0
+            self.invalidate('Camera source change failed. Sorting remains paused.')
+
+    def set_camera_source(self, name, url=None, *, index=0, vision_ready=True):
+        with self.lock:
+            self.enabled = False
+            self.camera_source = name
+            self.camera_url = url
+            self.camera_index = index
+            self.mock_camera = name == 'mock'
+            self.vision_ready = vision_ready
+            self.frame = None
+            self.frame_at = None
+            self.camera_error = None
+            self.camera_switches_pending = max(0, self.camera_switches_pending - 1)
+            self.camera_switching = self.camera_switches_pending > 0
+            self.last_evaluated_frame = None
+            self.invalidate('Camera source changed. Sorting paused.')
 
     def fresh_frame(self):
         return self.frame_at is not None and self.clock() - self.frame_at <= self.max_age
@@ -94,6 +145,10 @@ class Bridge:
         with self.lock:
             if type(enabled) is not bool:
                 raise ValueError('enabled must be boolean')
+            if enabled and self.camera_switching:
+                raise ValueError('Camera source is changing; wait for a current frame')
+            if enabled and not self.vision_ready:
+                raise ValueError('Gemini is not configured for this camera source; set GEMINI_API_KEY and GEMINI_MODEL')
             if enabled and set(self.allowed_bins) != set(BINS):
                 raise ValueError('Arm controller must support PAPER, PLASTIC, METAL, ORGANIC before sorting')
             if enabled and (self.arm.state != 'READY' or not self.arm.connected or not self.fresh_frame()):
@@ -116,7 +171,8 @@ class Bridge:
 
     def begin_prediction(self):
         with self.lock:
-            if not self.enabled or self.arm.state != 'READY' or not self.arm.connected or not self.fresh_frame():
+            if (not self.enabled or self.camera_switching or not self.vision_ready or self.arm.state != 'READY'
+                    or not self.arm.connected or not self.fresh_frame()):
                 return None
             age = self.clock() - self.frame_at
             timestamp = (datetime.now(timezone.utc) - timedelta(seconds=age)).isoformat()
@@ -181,6 +237,10 @@ class Bridge:
                         arm_state=getattr(self.arm.state, 'value', self.arm.state),
                         connected=self.arm.connected, counts=dict(self.counts),
                         recent_sorts=[dict(row) for row in self.recent_sorts],
-                        simulation=self.simulation, mock_camera=self.mock_camera, sorting_enabled=self.enabled,
+                        simulation=self.simulation, mock_camera=self.mock_camera,
+                        mock_available=self.mock_available, camera_source=self.camera_source,
+                        camera_url=self.camera_url, camera_index=self.camera_index,
+                        camera_error=self.camera_error,
+                        vision_ready=self.vision_ready, sorting_enabled=self.enabled,
                         status=self.status, arm_detail=self.arm.detail,
                         awaiting_clear=self.awaiting_clear)

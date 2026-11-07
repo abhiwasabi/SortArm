@@ -1,9 +1,11 @@
 """Run `python -m bridge --mock` for a complete local simulation."""
 import argparse
+import os
 from pathlib import Path
 import threading
 
-from .adapters import Camera, GeminiPredictor, MockSource, prediction_error_message
+from .adapters import Camera, GeminiPredictor, prediction_error_message
+from .camera_sources import CameraSourceManager, Esp32SnapshotSource, validate_esp32_url
 from .core import Bridge
 from .server import make_server
 
@@ -14,6 +16,7 @@ def main():
     parser.add_argument('--mock-arm', action='store_true', help='Real camera/Gemini, simulated arm')
     parser.add_argument('--port', type=int, default=4173)
     parser.add_argument('--camera', type=int, default=0)
+    parser.add_argument('--esp32-url', help='Local HTTP JPEG snapshot URL, e.g. http://192.168.1.50/capture')
     args = parser.parse_args()
     try:
         from arm import BINS, ArmConfig, ArmController, MockBackend, So101Backend, demo_poses, load_poses
@@ -21,38 +24,52 @@ def main():
         parser.error('arm/ dependency missing. Integrate Paul\'s #20 branch first; see bridge/README.md.')
     web = Path(__file__).resolve().parents[1] / 'web'
     mock_arm = args.mock or args.mock_arm
+    esp32_url = validate_esp32_url(args.esp32_url) if args.esp32_url else None
     config = ArmConfig.from_env()
     if mock_arm:
         config.speed_deg_s = 90
         config.gripper_speed = 300
-    # Validate cloud config before opening any physical device.
-    predictor = None if args.mock else GeminiPredictor()
-    source = MockSource(web) if args.mock else Camera(args.camera)
+    # Physical motion still requires complete cloud configuration before the arm connects.
+    has_gemini = bool(os.environ.get('GEMINI_API_KEY') and os.environ.get('GEMINI_MODEL'))
+    predictor = GeminiPredictor() if has_gemini or not mock_arm else None
+    # Keep the prior physical-mode order: verify the camera before connecting the arm.
+    initial_source = None
+    if not mock_arm:
+        initial_source = Esp32SnapshotSource(esp32_url) if esp32_url else Camera(args.camera)
+        if esp32_url:
+            initial_source.capture()
     try:
         arm = ArmController.from_config(config, mock=mock_arm)
     except Exception:
-        if hasattr(source, 'close'):
-            source.close()
+        if hasattr(initial_source, 'close'):
+            initial_source.close()
         raise
-    bridge = Bridge(arm, simulation=mock_arm, mock_camera=args.mock, allowed_bins=BINS,
+    initial_name = 'esp32' if esp32_url and not mock_arm else 'mock' if args.mock else 'usb'
+    bridge = Bridge(arm, simulation=mock_arm, mock_camera=args.mock, mock_available=args.mock,
+                    camera_source=initial_name, camera_url=esp32_url if not mock_arm else None,
+                    camera_index=args.camera,
+                    vision_ready=args.mock or predictor is not None, allowed_bins=BINS,
                     prediction_max_age=30 if mock_arm else 8)
+    camera = CameraSourceManager(bridge, web, allow_mock=args.mock, predictor=predictor, index=args.camera,
+                                 initial_source=initial_source, initial_name=initial_name,
+                                 initial_url=esp32_url if not mock_arm else None)
+    if esp32_url and mock_arm:
+        camera.select('esp32', url=esp32_url)
     shutdown = threading.Event()
 
     def capture_loop():
         while not shutdown.is_set():
-            try:
-                bridge.camera_frame(source.capture())
-            except Exception:
-                bridge.camera_lost()
-            shutdown.wait(.25)
+            camera.capture_once()
+            shutdown.wait(camera.capture_interval())
 
     def prediction_loop():
         while not shutdown.is_set():
             ticket = bridge.begin_prediction()
             if ticket:
                 try:
-                    result = (source if args.mock else predictor).predict(ticket[3])
-                    bridge.accept_prediction(ticket, result)
+                    result = camera.predict(ticket)
+                    if result is not None:
+                        bridge.accept_prediction(ticket, result)
                 except Exception as exc:
                     message = prediction_error_message(exc)
                     print(message, flush=True)
@@ -69,11 +86,13 @@ def main():
                     bridge.invalidate('Arm polling failed. Check connection and restart.')
 
     workers = [threading.Thread(target=fn, daemon=True) for fn in (capture_loop, prediction_loop, poll_loop)]
-    server = make_server(bridge, web, args.port, source if args.mock else None)
+    server = make_server(bridge, web, args.port, camera_manager=camera)
     for worker in workers:
         worker.start()
     print(f'Dashboard: http://127.0.0.1:{server.server_port}', flush=True)
     print('SIMULATED ARM' if mock_arm else 'PHYSICAL ARM: verify calibration, taught poses, and power cutoff.', flush=True)
+    if predictor is None:
+        print('Gemini is not configured; live cameras can preview, but sorting is disabled.', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -85,8 +104,7 @@ def main():
             worker.join(timeout=8)
         server.server_close()
         arm.close()
-        if hasattr(source, 'close'):
-            source.close()
+        camera.close()
 
 
 if __name__ == '__main__':

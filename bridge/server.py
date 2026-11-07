@@ -1,4 +1,5 @@
 """Same-origin local HTTP API plus the existing static dashboard."""
+from .gemini_settings import connect_gemini, disconnect_gemini, gemini_status
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -7,10 +8,18 @@ from urllib.parse import urlsplit
 
 
 class Handler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, bridge, source=None, directory, **kwargs):
+    def __init__(self, *args, bridge, source=None, camera_manager=None, directory, **kwargs):
         self.bridge = bridge
         self.source = source
+        self.camera_manager = camera_manager
         super().__init__(*args, directory=directory, **kwargs)
+
+    def log_request(self, code='-', size='-'):
+        # The preview polls cached JPEGs frequently; omit routine successes
+        # so an unattended terminal session does not fill with frame logs.
+        if code in (200, 503) and urlsplit(self.path).path == '/api/frame.jpg':
+            return
+        super().log_request(code, size)
 
     def end_headers(self):
         self.send_header('Cache-Control', 'no-store')
@@ -35,6 +44,16 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.valid_host():
             return self.send_json(403, {'error': 'Use the local dashboard URL'})
         path = urlsplit(self.path).path
+        if path == '/api/cameras':
+            try:
+                from cv2_enumerate_cameras import enumerate_cameras
+                devices = [{'id': d.path, 'name': d.name, 'index': d.index}
+                           for d in enumerate_cameras() if d.path]
+                return self.send_json(200, {'devices': devices})
+            except Exception:
+                return self.send_json(503, {'error': 'Camera list unavailable. Check webcam dependencies.'})
+        if path == '/api/gemini' and self.camera_manager is not None:
+            return self.send_json(200, gemini_status(self.camera_manager))
         if path == '/api/state':
             return self.send_json(200, self.bridge.snapshot())
         if path == '/api/frame.jpg':
@@ -61,12 +80,22 @@ class Handler(SimpleHTTPRequestHandler):
             if not isinstance(body, dict):
                 raise ValueError('Expected a JSON object')
             path = urlsplit(self.path).path
+            if path == '/api/gemini' and self.camera_manager is not None:
+                result = (disconnect_gemini(self.camera_manager) if body.get('disconnect') is True
+                          else connect_gemini(self.camera_manager, body))
+                return self.send_json(200, result)
             if path == '/api/stop':
                 accepted = self.bridge.stop()
             elif path == '/api/home':
                 accepted = self.bridge.home()
             elif path == '/api/sorting':
                 self.bridge.set_sorting(body.get('enabled'))
+                accepted = True
+            elif path == '/api/camera' and self.camera_manager is not None:
+                self.camera_manager.select(body.get('source'), url=body.get('url'), index=body.get('index'), device_id=body.get('device_id'))
+                accepted = True
+            elif path == '/api/mock' and self.camera_manager is not None:
+                self.camera_manager.select_mock_scenario(body.get('scenario'))
                 accepted = True
             elif path == '/api/mock' and self.source is not None:
                 # Changing a sample cannot apply a result from the previous image.
@@ -87,6 +116,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(503, {'error': 'Controller operation failed'})
 
 
-def make_server(bridge, web, port=4173, source=None):
-    handler = partial(Handler, bridge=bridge, source=source, directory=str(Path(web).resolve()))
+def make_server(bridge, web, port=4173, source=None, camera_manager=None):
+    handler = partial(Handler, bridge=bridge, source=source, camera_manager=camera_manager,
+                      directory=str(Path(web).resolve()))
     return ThreadingHTTPServer(('127.0.0.1', port), handler)
