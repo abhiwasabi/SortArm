@@ -58,8 +58,8 @@ class Camera:
         import cv2
         self.cv2 = cv2
         if device_id:
-            from cv2_enumerate_cameras import enumerate_cameras
-            devices = [d for d in enumerate_cameras() if d.path == device_id]
+            from .camera_devices import enumerate_camera_devices
+            devices = [d for d in enumerate_camera_devices() if d.path == device_id]
             if not devices:
                 raise RuntimeError('Selected camera is disconnected')
             device = devices[0]

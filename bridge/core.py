@@ -45,6 +45,7 @@ class Bridge:
         self.camera_source = camera_source or ('mock' if mock_camera else 'usb')
         self.camera_url = camera_url
         self.camera_index = camera_index
+        self.camera_device_id = None
         self.vision_ready = vision_ready
         self.clock = clock
         self.max_age = max_age
@@ -240,6 +241,7 @@ class Bridge:
                         simulation=self.simulation, mock_camera=self.mock_camera,
                         mock_available=self.mock_available, camera_source=self.camera_source,
                         camera_url=self.camera_url, camera_index=self.camera_index,
+                        camera_device_id=self.camera_device_id,
                         camera_error=self.camera_error,
                         vision_ready=self.vision_ready, sorting_enabled=self.enabled,
                         status=self.status, arm_detail=self.arm.detail,

@@ -108,16 +108,18 @@ function renderCameraSource(usableCamera) {
   ui.stopCameraSettings.hidden = cameraOff;
   ui.stopCameraSettings.disabled = !available || cameraChangePending;
   if (!cameraSelectionDirty && available && snapshot.cameraSource !== "off") {
-    ui.cameraSourceSelect.value = snapshot.cameraSource === "mock" ? "usb" : snapshot.cameraSource;
+    ui.cameraSourceSelect.value = snapshot.cameraSource === "mock" ? "usb" :
+      snapshot.cameraSource === "usb" && ui.cameraSourceSelect.dataset.usbKind === "iphone" ? "iphone" : snapshot.cameraSource;
     if (snapshot.cameraSource === "esp32") ui.esp32CameraUrl.value = snapshot.cameraUrl ?? "";
   }
   const selection = ui.cameraSourceSelect.value;
   ui.esp32CameraFields.hidden = selection !== "esp32";
-  ui.usbCameraFields.hidden = selection !== "usb";
+  ui.usbCameraFields.hidden = !["usb", "iphone"].includes(selection);
   ui.cameraSourceSelect.disabled = !available || controlPending || cameraChangePending;
   ui.esp32CameraUrl.disabled = !available || controlPending || cameraChangePending;
   ui.applyCameraButton.disabled = !available || controlPending || cameraChangePending ||
-    (selection === "esp32" && !ui.esp32CameraUrl.value.trim());
+    (selection === "esp32" && !ui.esp32CameraUrl.value.trim()) ||
+    (["usb", "iphone"].includes(selection) && !ui.usbCameraDevice.value);
   ui.applyCameraButton.textContent = cameraChangePending ? "Connecting..." : "Use this camera";
   const sourceError = available && snapshot.cameraSource !== "mock" ? snapshot.cameraError : null;
   ui.cameraSourceError.textContent = sourceError ?? "";
@@ -418,9 +420,13 @@ async function bridgeCommand(path, body = {}) {
 async function applyCameraSource() {
   if (previewMode || controlPending || cameraChangePending || !backendOnline || !snapshot?.bridgeAvailable) return;
   const source = ui.cameraSourceSelect.value;
-  const body = { source };
+  if (["usb", "iphone"].includes(source) && !ui.usbCameraDevice.value) {
+    setNotice("Selected camera is unavailable or still being detected. Refresh the camera list and try again.", "error");
+    return;
+  }
+  const body = { source: source === "iphone" ? "usb" : source };
   if (source === "esp32") body.url = ui.esp32CameraUrl.value.trim();
-  if (source === "usb") {
+  if (["usb", "iphone"].includes(source)) {
     body.index = 0;
     if (ui.usbCameraDevice.value) body.device_id = ui.usbCameraDevice.value;
   }
@@ -436,6 +442,7 @@ async function applyCameraSource() {
     const result = await response.json();
     if (!response.ok || result.accepted !== true) throw new Error(result.error || "Camera source was not accepted.");
     snapshot = normalizeState(result.state);
+    ui.cameraSourceSelect.dataset.usbKind = source;
     cameraSelectionDirty = false;
     cameraOnline = false;
     lastFrameAt = null;
