@@ -166,7 +166,10 @@ function renderArm() {
     };
     [label, description, tone] = states[snapshot.armState];
     badge = snapshot.armState;
-    if (snapshot.armState === "ERROR") {
+    if (snapshot.armState === "ERROR" && armNotResponding(snapshot)) {
+      // HOME is refused until the stuck move ends, so do not suggest it.
+      description = snapshot.armDetail + ". Use the physical power cutoff if it is still moving.";
+    } else if (snapshot.armState === "ERROR") {
       description = (snapshot.armDetail || description) + " Press Home arm to recover.";
     } else if (snapshot.armState === "BUSY" && snapshot.armDetail) {
       description = "Moving: " + snapshot.armDetail;
@@ -351,6 +354,12 @@ function refreshLiveFrameLoop() {
   setTimeout(refreshLiveFrameLoop, FRAME_POLL_MS);
 }
 
+// The arm controller reports "stopped; arm not responding" when STOP gave up waiting for a move
+// stuck on the servo bus. That is not a confirmed stop.
+function armNotResponding(state) {
+  return /not responding/i.test(state?.armDetail || "");
+}
+
 async function pollState() {
   const requestSequence = ++stateRequestSequence;
   const controller = new AbortController();
@@ -368,6 +377,10 @@ async function pollState() {
     if (awaitingStopState && requestSequence >= stopMinimumSequence) {
       if (!snapshot.connected) {
         setNotice("Arm controller disconnected before STOP was confirmed. Use the physical power cutoff if needed.", "error");
+        awaitingStopState = false;
+      } else if (snapshot.armState === "ERROR" && armNotResponding(snapshot)) {
+        // The controller gave up waiting for a move stuck on the servo bus: motion may not have ended.
+        setNotice("STOP was sent, but the arm is not responding and may still be moving. Use the physical power cutoff now.", "error");
         awaitingStopState = false;
       } else if (snapshot.armState === "ERROR") {
         setNotice("Arm stopped. Check it is clear, then press Home arm to recover.", "success");
