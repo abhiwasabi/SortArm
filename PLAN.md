@@ -18,7 +18,7 @@ A prototype that recognizes a small, selected set of ASL signs and turns a confi
 ## Architecture
 
 ```text
-WROVER camera → laptop server → recognition.predict(frame)
+WROVER camera → laptop server → recognition.predict(frames)
                                   ↓
                       GET /api/prediction
                                   ↓
@@ -31,7 +31,7 @@ WROVER camera → laptop server → recognition.predict(frame)
 
 ### Shared contract
 
-- `recognition.predict(frame)` returns `{label, confidence}`.
+- `recognition.predict(frames)` accepts a short time window of frames and returns `{label, confidence}`. The recognizer may use one frame for static signs, but the interface must allow movement over time.
 - `label` is one of the agreed supported labels or `UNKNOWN`. `confidence` is a number from 0 to 1.
 - `GET /api/status` reports camera and model readiness.
 - `GET /api/prediction` returns `{label, confidence, stable, timestamp}`, where `timestamp` is ISO 8601 and `stable` is a boolean.
