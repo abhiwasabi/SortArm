@@ -85,9 +85,11 @@ def move_to(backend: Backend, start: Positions | None, target: Positions, config
             commanded = {joint: start[joint] + (goal[joint] - start[joint]) * frac for joint in JOINTS}
         backend.write(commanded)
         written_at = time.perf_counter()  # perf_counter: monotonic() ticks only every ~16 ms on Windows
+        # Pace after every write, the final one included: otherwise, when the arm is already within
+        # tolerance, _settle() returns at once and the next move's first write follows back-to-back.
+        stop.wait(period)
         if progress >= duration:
             break
-        stop.wait(period)
         elapsed = time.perf_counter() - written_at
 
     _settle(backend, goal, config, stop)

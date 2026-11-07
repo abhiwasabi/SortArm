@@ -785,3 +785,15 @@ def test_a_delayed_write_does_not_cause_a_catch_up_burst():
     for (a, b), gap in zip(zip(lifts, lifts[1:]), gaps):
         assert abs(b - a) <= speed * gap * 1.05  # never faster than speed_deg_s
         assert abs(b - a) <= speed * max_catchup(period) + 1e-9  # bounded step, even after the stall
+
+
+def test_consecutive_moves_never_send_back_to_back_writes():
+    # The arm is already within tolerance after a move's final write, so settling returns at once.
+    # The next move's first write must still come a full period after that final write.
+    period = 0.01
+    config = fast_config(speed_deg_s=100.0, rate_hz=1 / period)
+    backend = MockBackend()
+    goal = move_to(backend, None, {"shoulder_lift": -10.0}, config, threading.Event())
+    move_to(backend, goal, {**goal, "shoulder_lift": -20.0}, config, threading.Event())
+    gaps = [b - a for a, b in zip(backend.write_times, backend.write_times[1:])]
+    assert min(gaps) >= 0.8 * period
