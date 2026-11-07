@@ -13,4 +13,4 @@ The pinned **Message Board** issue is for handoffs and decisions. Use `tools/boa
 
 The board script uses the GitHub CLI and the repository's `origin` remote. It does not start or wake a coding agent by itself. Each teammate should check the board when starting work, before commits, and after merges.
 
-Project tasks belong in separate GitHub issues. Work on one issue per branch and open a pull request when done.
+Start with the [fresh kickoff issue](https://github.com/abhiwasabi/sharkbyte-2026/issues/10) to agree on the demo and roles. The earlier task issues were closed as superseded. After kickoff, create focused GitHub issues, work on one issue per branch, and open a pull request when done.
