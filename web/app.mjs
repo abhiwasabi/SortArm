@@ -1,7 +1,21 @@
-import { derivePrediction, formatCount, normalizeState } from "./state.mjs";
+import { BIN_KEYS, derivePrediction, formatCount, normalizeState } from "./state.mjs";
+
+const BIN_DISPLAY = {
+  PAPER: { label: "Paper bin", short: "PA" },
+  PLASTIC: { label: "Plastic bin", short: "PL" },
+  METAL: { label: "Metal bin", short: "ME" },
+  ORGANIC: { label: "Organic bin", short: "OR" }
+};
 
 const byId = (id) => document.getElementById(id);
 const ui = {
+  runtimeMode: byId("runtimeMode"),
+  bridgeControls: byId("bridgeControls"),
+  bridgeStatus: byId("bridgeStatus"),
+  homeButton: byId("homeButton"),
+  sortingButton: byId("sortingButton"),
+  mockControls: byId("mockControls"),
+  mockScenario: byId("mockScenario"),
   overviewSubtitle: byId("overviewSubtitle"),
   backendHealth: byId("backendHealth"),
   backendStatus: byId("backendStatus"),
@@ -23,8 +37,7 @@ const ui = {
   armState: byId("armState"),
   armDescription: byId("armDescription"),
   stopButton: byId("stopButton"),
-  recycleCount: byId("recycleCount"),
-  trashCount: byId("trashCount"),
+  binCounts: Object.fromEntries(BIN_KEYS.map(bin => [bin, byId(bin.toLowerCase() + "Count")])),
   historyStatus: byId("historyStatus"),
   historyMessage: byId("historyMessage"),
   sortHistory: byId("sortHistory"),
@@ -42,6 +55,7 @@ let backendOnline = false;
 let cameraOnline = false;
 let lastFrameAt = null;
 let stopPending = false;
+let controlPending = false;
 let awaitingStopState = false;
 let stopRequestedAt = null;
 let frameRequestAt = null;
@@ -98,6 +112,7 @@ function renderArm() {
     };
     [label, description, tone] = states[snapshot.armState];
     badge = snapshot.armState;
+    if (snapshot.armState === "ERROR" && snapshot.armDetail) description = snapshot.armDetail;
   }
 
   ui.armState.textContent = label;
@@ -132,14 +147,14 @@ function renderHistory() {
     icon.className = "history-icon";
     icon.dataset.bin = sort.bin;
     icon.setAttribute("aria-hidden", "true");
-    icon.textContent = sort.bin === "RECYCLE" ? "↻" : "▥";
+    icon.textContent = BIN_DISPLAY[sort.bin].short;
     const item = document.createElement("strong");
     item.className = "history-item";
     item.textContent = sort.label;
     const bin = document.createElement("span");
     bin.className = "history-bin";
     bin.dataset.bin = sort.bin;
-    bin.textContent = sort.bin === "RECYCLE" ? "Recycle bin" : "Trash bin";
+    bin.textContent = BIN_DISPLAY[sort.bin].label;
     const time = document.createElement("time");
     time.className = "history-time";
     time.dateTime = sort.completedAt;
@@ -152,7 +167,7 @@ function renderHistory() {
   const newest = sorts?.[0];
   if (!previewMode && newest && latestHistoryId !== null && newest.id !== latestHistoryId) {
     ui.historyAnnouncement.textContent = newest.label + " sorted into " +
-      (newest.bin === "RECYCLE" ? "Recycle" : "Trash") + ".";
+      BIN_DISPLAY[newest.bin].label + ".";
   }
   if (newest) latestHistoryId = newest.id;
 }
@@ -189,14 +204,26 @@ function render() {
   ui.confidenceFill.style.width = percent === null ? "0%" : percent + "%";
   ui.confidenceMeter.setAttribute("aria-valuenow", percent === null ? "0" : String(percent));
   ui.confidenceMeter.setAttribute("aria-valuetext", percent === null ? "No confidence available" : percent + " percent");
-  ui.binDecision.textContent = prediction.bin === "RECYCLE"
-    ? "Recycle bin" : prediction.bin === "TRASH" ? "Trash bin" : "No route selected";
+  ui.binDecision.textContent = prediction.bin
+    ? BIN_DISPLAY[prediction.bin].label : "No route selected";
 
   renderArm();
+  const bridgeAvailable = !previewMode && backendOnline && snapshot?.bridgeAvailable;
+  ui.bridgeControls.hidden = !bridgeAvailable;
+  ui.bridgeStatus.hidden = !bridgeAvailable;
+  ui.bridgeStatus.textContent = snapshot?.status ?? "";
+  ui.runtimeMode.hidden = !previewMode && !snapshot?.simulation;
+  ui.runtimeMode.textContent = previewMode ? "SAMPLE PREVIEW" : "SIMULATED ARM";
+  ui.mockControls.hidden = !bridgeAvailable || !snapshot?.mockCamera;
+  ui.homeButton.disabled = controlPending || !bridgeAvailable || !snapshot?.connected || snapshot?.armState === "BUSY";
+  ui.sortingButton.disabled = controlPending || !bridgeAvailable || (!snapshot?.sortingEnabled && (!snapshot?.connected || snapshot?.armState !== "READY" || !cameraOnline));
+  ui.sortingButton.textContent = snapshot?.sortingEnabled ? "Pause sorting" : "Start sorting";
   ui.stopButton.disabled = stopPending || (!previewMode && !backendOnline);
   ui.stopButton.querySelector("span").textContent = stopPending ? "SENDING..." : "STOP ARM";
-  ui.recycleCount.textContent = backendOnline && snapshot ? formatCount(snapshot.counts.RECYCLE) : "—";
-  ui.trashCount.textContent = backendOnline && snapshot ? formatCount(snapshot.counts.TRASH) : "—";
+  for (const bin of BIN_KEYS) {
+    ui.binCounts[bin].textContent = backendOnline && snapshot
+      ? formatCount(snapshot.counts[bin]) : "—";
+  }
   renderHistory();
 }
 
@@ -204,14 +231,16 @@ function setupPreview() {
   const sample = {
     label: "Plastic bottle",
     confidence: 0.94,
-    bin: "RECYCLE",
+    bin: "PLASTIC",
     arm_state: "READY",
     connected: true,
-    counts: { RECYCLE: 4, TRASH: 2 },
+    counts: { PAPER: 3, PLASTIC: 4, METAL: 2, ORGANIC: 1 },
     prediction_at: new Date().toISOString(),
     recent_sorts: [
-      { id: "sample-2", label: "Plastic bottle", bin: "RECYCLE", completed_at: new Date(Date.now() - 120000).toISOString() },
-      { id: "sample-1", label: "Snack wrapper", bin: "TRASH", completed_at: new Date(Date.now() - 360000).toISOString() }
+      { id: "sample-4", label: "Plastic bottle", bin: "PLASTIC", completed_at: new Date(Date.now() - 120000).toISOString() },
+      { id: "sample-3", label: "Paper sheet", bin: "PAPER", completed_at: new Date(Date.now() - 360000).toISOString() },
+      { id: "sample-2", label: "Aluminum can", bin: "METAL", completed_at: new Date(Date.now() - 600000).toISOString() },
+      { id: "sample-1", label: "Banana peel", bin: "ORGANIC", completed_at: new Date(Date.now() - 840000).toISOString() }
     ]
   };
   backendOnline = true;
@@ -310,6 +339,30 @@ async function requestStop() {
   }
 }
 
+async function bridgeCommand(path, body = {}) {
+  if (previewMode || controlPending || !backendOnline) return;
+  controlPending = true;
+  render();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "The arm did not accept the command.");
+    if (result.state) snapshot = normalizeState(result.state);
+    setNotice(path === "/api/home" ? "Homing requested. Sorting remains paused." : "Control updated.");
+  } catch (error) {
+    setNotice(error.name === "AbortError" ? "Request timed out. Check controller state before retrying." : error.message, "error");
+  } finally {
+    clearTimeout(timeout);
+    controlPending = false;
+    render();
+  }
+}
+
+ui.homeButton.addEventListener("click", () => bridgeCommand("/api/home"));
+ui.sortingButton.addEventListener("click", () => bridgeCommand("/api/sorting", { enabled: !snapshot?.sortingEnabled }));
+ui.mockScenario.addEventListener("change", () => bridgeCommand("/api/mock", { scenario: ui.mockScenario.value }));
 ui.stopButton.addEventListener("click", requestStop);
 if (previewMode) {
   setupPreview();

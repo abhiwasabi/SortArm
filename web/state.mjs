@@ -1,5 +1,6 @@
 const ARM_STATES = new Set(["READY", "BUSY", "DONE", "ERROR"]);
-const BINS = new Set(["RECYCLE", "TRASH"]);
+export const BIN_KEYS = ["PAPER", "PLASTIC", "METAL", "ORGANIC"];
+const BINS = new Set(BIN_KEYS);
 const HISTORY_LIMIT = 20;
 
 function nonnegativeCount(value) {
@@ -56,15 +57,19 @@ export function normalizeState(raw) {
     : {};
 
   return {
+    bridgeAvailable: typeof raw.sorting_enabled === "boolean",
+    sortingEnabled: raw.sorting_enabled === true,
+    simulation: raw.simulation === true,
+    mockCamera: raw.mock_camera === true,
+    status: typeof raw.status === "string" ? raw.status : "",
+    armDetail: typeof raw.arm_detail === "string" ? raw.arm_detail : "",
     label,
     confidence,
     bin,
     armState,
     connected: raw.connected === true,
-    counts: {
-      RECYCLE: nonnegativeCount(rawCounts.RECYCLE ?? rawCounts.recycle),
-      TRASH: nonnegativeCount(rawCounts.TRASH ?? rawCounts.trash)
-    },
+    counts: Object.fromEntries(BIN_KEYS.map(binName => [binName,
+      nonnegativeCount(rawCounts[binName] ?? rawCounts[binName.toLowerCase()])])),
     predictionAt: predictionTime(raw.prediction_at ?? raw.timestamp),
     recentSorts: completedSorts(raw.recent_sorts)
   };
@@ -91,7 +96,7 @@ export function derivePrediction(state, options = {}) {
     return { kind: "stale", label: "No current item", confidence: null, bin: null,
       note: "The last prediction is old. Waiting for a new camera result." };
   }
-  if (state.label.toUpperCase() === "UNKNOWN" || state.bin === null || state.confidence === null) {
+  if (state.label.toUpperCase() === "UNKNOWN" || state.bin === null) {
     return { kind: "review", label: state.label === "UNKNOWN" ? "Unknown item" : state.label,
       confidence: state.confidence, bin: null,
       note: state.predictionAt === null
@@ -104,8 +109,12 @@ export function derivePrediction(state, options = {}) {
     confidence: state.confidence,
     bin: state.bin,
     note: state.predictionAt === null
-      ? "Latest API response. Capture time was not supplied."
-      : "Detection from the camera."
+      ? state.confidence === null
+        ? "Latest API response. Capture time and model confidence score were not supplied."
+        : "Latest API response. Capture time was not supplied."
+      : state.confidence === null
+        ? "Detection from the camera. No model confidence score was supplied."
+        : "Detection from the camera."
   };
 }
 

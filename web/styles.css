@@ -121,9 +121,12 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
 .totals-heading p:last-child { margin: 5px 0 18px; color: var(--muted); font-size: 12px; }
 .bin-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .bin-card { display: flex; align-items: center; gap: 15px; min-height: 112px; padding: 19px; background: white; border-radius: 19px; }
-.bin-symbol { width: 55px; height: 55px; display: grid; place-items: center; border-radius: 16px; flex: 0 0 auto; font-size: 30px; line-height: 1; }
-.recycle-card .bin-symbol { background: var(--sage-bg); color: var(--sage); }
-.trash-card .bin-symbol { background: #f6ece7; color: #a66f5d; }
+.bin-symbol { width: 55px; height: 55px; display: grid; place-items: center; border-radius: 16px; flex: 0 0 auto; }
+.bin-symbol svg { width: 32px; height: 32px; }
+.paper-card .bin-symbol { background: #f5eee2; color: #8f6e45; }
+.plastic-card .bin-symbol { background: #e5f0f5; color: #467b9a; }
+.metal-card .bin-symbol { background: #ebedf4; color: #6d6f85; }
+.organic-card .bin-symbol { background: #e6f1e5; color: #568451; }
 .bin-card > div { display: grid; gap: 1px; }
 .bin-card > div span { color: var(--muted); font-size: 11px; }
 .bin-card strong { font-size: 32px; font-weight: 720; line-height: 1; letter-spacing: -.04em; }
@@ -139,11 +142,13 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
 .history-message { margin: 0; padding: 17px 19px; border-radius: 17px; background: white; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .history-list { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
 .history-row { min-width: 0; display: grid; grid-template-columns: 36px minmax(0, 1fr) auto auto; align-items: center; gap: 13px; min-height: 64px; padding: 11px 17px; border-radius: 17px; background: white; }
-.history-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; background: var(--sage-bg); color: var(--sage); font-size: 18px; }
-.history-icon[data-bin="TRASH"] { background: #f6ece7; color: #a66f5d; }
+.history-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px; font-size: 10px; font-weight: 780; letter-spacing: -.03em; }
 .history-item { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 690; }
-.history-bin { padding: 7px 9px; border-radius: 20px; background: var(--sage-bg); color: var(--sage); font-size: 10px; font-weight: 700; white-space: nowrap; }
-.history-bin[data-bin="TRASH"] { background: #f6ece7; color: #a66f5d; }
+.history-bin { padding: 7px 9px; border-radius: 20px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.history-icon[data-bin="PAPER"], .history-bin[data-bin="PAPER"] { background: #f5eee2; color: #75552f; }
+.history-icon[data-bin="PLASTIC"], .history-bin[data-bin="PLASTIC"] { background: #e5f0f5; color: #2d6380; }
+.history-icon[data-bin="METAL"], .history-bin[data-bin="METAL"] { background: #ebedf4; color: #535569; }
+.history-icon[data-bin="ORGANIC"], .history-bin[data-bin="ORGANIC"] { background: #e6f1e5; color: #386338; }
 .history-time { min-width: 92px; color: var(--muted); font-size: 11px; text-align: right; white-space: nowrap; }
 
 .detail-heading { margin: 3px 0 22px; }
@@ -221,3 +226,16 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
   html { scroll-behavior: auto; }
   .nav-link, .confidence-track span { transition: none; }
 }
+
+/* Laptop bridge controls follow the dashboard's existing card layout. */
+.bridge-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.control-button, #mockScenario { min-height: 40px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; background: #fff; color: #263b2d; font: inherit; font-size: 12px; }
+.control-button { cursor: pointer; }
+.control-button:disabled { opacity: .5; cursor: not-allowed; }
+.control-button:hover:not(:disabled) { background: #edf3eb; }
+.bridge-status { font-size: 12px; line-height: 1.5; color: #59645c; margin: 12px 0 0; }
+.runtime-mode { font-size: 10px; font-weight: 700; padding: 7px 9px; border-radius: 10px; background: #fff1d7; color: #755018; }
+#mockControls { padding: 20px; margin-bottom: 16px; }
+#mockControls label { display: block; font-size: 13px; margin-bottom: 8px; }
+#mockScenario { width: 100%; max-width: 320px; }
+@media (max-width: 520px) { .runtime-mode { max-width: 105px; text-align: center; } }

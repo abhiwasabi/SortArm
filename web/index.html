@@ -32,6 +32,7 @@
     <header class="topbar">
       <div class="topbar-title"><strong>Sort Arm</strong><span>Dashboard</span></div>
       <div class="topbar-actions">
+        <span id="runtimeMode" class="runtime-mode" hidden></span>
         <button id="stopButton" class="stop-button" type="button" disabled><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/></svg><span>STOP ARM</span></button>
       </div>
     </header>
@@ -67,6 +68,11 @@
               <section class="inner-card arm-panel" id="arm" aria-labelledby="armTitle">
                 <div class="card-heading"><div><p class="small-label">MOTION</p><h2 id="armTitle">Robotic arm</h2></div><span id="armBadge" class="soft-badge" data-tone="neutral">UNKNOWN</span></div>
                 <div class="arm-state-wrap"><span class="arm-state-icon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M5 41h38M12 41v-7h15v7M18 34l-3-12 9-5 7 12-7 5M23 17l7-7 10 8-7 7" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15" cy="22" r="2.5" fill="currentColor"/><circle cx="33" cy="25" r="2.5" fill="currentColor"/></svg></span><div><span class="small-label">CONTROLLER STATE</span><strong id="armState" class="arm-state" aria-live="polite">Waiting</strong><p id="armDescription">Checking the arm connection.</p></div></div>
+                <div class="bridge-controls" id="bridgeControls" hidden>
+                  <button id="homeButton" class="control-button" type="button" disabled>Home arm</button>
+                  <button id="sortingButton" class="control-button" type="button" disabled>Start sorting</button>
+                </div>
+                <p id="bridgeStatus" class="bridge-status" role="status" hidden></p>
                 <p class="safety-note">Keep the physical power cutoff within reach.</p>
               </section>
             </div>
@@ -76,8 +82,10 @@
         <section class="totals" id="bins" aria-labelledby="totalsTitle">
           <div class="totals-heading"><p class="small-label">COMPLETED SORTS</p><h2 id="totalsTitle">Bin totals</h2><p>Counts update only after the arm reports a completed drop.</p></div>
           <div class="bin-grid">
-            <div class="bin-card recycle-card"><span class="bin-symbol" aria-hidden="true">↻</span><div><span>Recycle bin</span><strong id="recycleCount">—</strong><small>Completed drops</small></div></div>
-            <div class="bin-card trash-card"><span class="bin-symbol" aria-hidden="true">▥</span><div><span>Trash bin</span><strong id="trashCount">—</strong><small>Completed drops</small></div></div>
+            <div class="bin-card paper-card"><span class="bin-symbol" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M12 5h17l7 7v31H12zM29 5v8h7M18 21h12M18 27h12M18 33h9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><span>Paper bin</span><strong id="paperCount">—</strong><small>Completed drops</small></div></div>
+            <div class="bin-card plastic-card"><span class="bin-symbol" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M18 5h12v6H18zM20 11v5l-5 6v17c0 2 2 4 4 4h10c2 0 4-2 4-4V22l-5-6v-5M15 28h18" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><span>Plastic bin</span><strong id="plasticCount">—</strong><small>Completed drops</small></div></div>
+            <div class="bin-card metal-card"><span class="bin-symbol" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><ellipse cx="24" cy="10" rx="12" ry="4" stroke="currentColor" stroke-width="2.5"/><path d="M12 10v28c0 2 5 4 12 4s12-2 12-4V10M12 38c0-2 5-4 12-4s12 2 12 4M17 20h14" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg></span><div><span>Metal bin</span><strong id="metalCount">—</strong><small>Completed drops</small></div></div>
+            <div class="bin-card organic-card"><span class="bin-symbol" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M39 8C20 8 10 16 10 29c0 7 5 11 12 11 13 0 19-12 17-32ZM10 40c8-11 16-17 27-22" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><span>Organic bin</span><strong id="organicCount">—</strong><small>Completed drops</small></div></div>
           </div>
           <section class="sort-history" aria-labelledby="historyTitle">
             <div class="history-heading"><div><p class="small-label">SORT LOG</p><h3 id="historyTitle">Recent sorts</h3></div><span id="historyStatus" class="history-status" data-tone="waiting">WAITING</span></div>
@@ -109,6 +117,11 @@
       <section id="settings" class="settings-view" aria-labelledby="settingsTitle" hidden>
         <div class="settings-heading"><p class="small-label">SYSTEM</p><h1 id="settingsTitle">Settings</h1><p>Connection details for the local sorting system.</p></div>
         <p id="previewSettingsNote" class="preview-settings-note" hidden>Sample preview only. No arm hardware is connected.</p>
+        <div id="mockControls" class="settings-card" hidden>
+          <label for="mockScenario">Simulated pickup area</label>
+          <select id="mockScenario"><option value="empty">Empty</option><option value="bottle">Plastic bottle</option><option value="paper">Paper sheet</option><option value="metal">Metal can</option><option value="organic">Banana peel</option><option value="unknown">Unknown item</option><option value="camera-offline">Camera disconnected</option></select>
+          <p class="bridge-status">Sample images and simulated motion. Choose Empty between items to allow another sort.</p>
+        </div>
         <div class="settings-card">
           <div class="settings-row" id="backendHealth" data-health="waiting"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M7 10h10M7 14h6"/></svg></span><div class="settings-row-copy"><strong>Dashboard API</strong><span>Local app connection</span></div><div class="settings-state"><span class="health-light" aria-hidden="true"></span><span id="backendStatus">Connecting</span></div></div>
           <div class="settings-row" id="armHealth" data-health="waiting"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 20h18M7 20v-4h8v4M9 16l-2-6 5-3 4 6-4 3M12 7l3-4 5 4-3 4"/></svg></span><div class="settings-row-copy"><strong>Arm controller</strong><span>SO-101 via laptop USB</span></div><div class="settings-state"><span class="health-light" aria-hidden="true"></span><span id="controllerStatus">Waiting</span></div></div>

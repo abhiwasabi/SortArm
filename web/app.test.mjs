@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { derivePrediction, formatCount, normalizeState } from './state.mjs';
+import { BIN_KEYS, derivePrediction, formatCount, normalizeState } from './state.mjs';
 
 const source = (await readFile(new URL('./app.mjs', import.meta.url), 'utf8'))
   .replace(/^import .*;\n/, '');
-const sample = { label: 'bottle', confidence: .94, bin: 'RECYCLE',
-  connected: true, arm_state: 'BUSY', counts: { RECYCLE: 4, TRASH: 2 } };
+const sample = { label: 'Plastic bottle', confidence: .94, bin: 'PLASTIC',
+  connected: true, arm_state: 'BUSY',
+  counts: { PAPER: 3, PLASTIC: 4, METAL: 2, ORGANIC: 1 } };
 
 function harness() {
   const elements = new Map();
@@ -31,7 +32,7 @@ function harness() {
     get() { return this.url; }, set(value) { this.url = value; this.writes++; }
   });
   const context = vm.createContext({
-    derivePrediction, formatCount, normalizeState, Date: Clock,
+    BIN_KEYS, derivePrediction, formatCount, normalizeState, Date: Clock,
     URLSearchParams, AbortController,
     window: { location: { search: '' } },
     document: { getElementById: element, createElement: makeElement },
@@ -101,32 +102,76 @@ test('STOP warning deadline runs even while a state request is stalled', async (
   assert.match(h.element('notice').textContent, /not confirmed after five seconds/);
 });
 
+
+test('bridge controls reflect homing, simulation, and paused sorting', async () => {
+  const h = harness();
+  await h.respond(0, { ...sample, arm_state: 'READY', simulation: true,
+    mock_camera: true, sorting_enabled: false, status: 'Sorting paused.' });
+  assert.equal(h.element('bridgeControls').hidden, false);
+  assert.equal(h.element('runtimeMode').textContent, 'SIMULATED ARM');
+  assert.equal(h.element('mockControls').hidden, false);
+  assert.equal(h.element('sortingButton').textContent, 'Start sorting');
+  const command = h.run('bridgeCommand("/api/home")');
+  await h.respond(1, {});
+  await command;
+  assert.equal(h.requests[1].url, '/api/home');
+});
+
+test('renders four material totals and every route even without a confidence score', async () => {
+  const h = harness();
+  await h.respond(0, { ...sample, confidence: null });
+  h.element('cameraFrame').listeners.load();
+  for (const [bin, count] of Object.entries(sample.counts)) {
+    assert.equal(h.element(bin.toLowerCase() + 'Count').textContent, String(count));
+  }
+  assert.equal(h.element('confidenceValue').textContent, '—');
+  const labels = {
+    PAPER: 'Paper bin', PLASTIC: 'Plastic bin',
+    METAL: 'Metal bin', ORGANIC: 'Organic bin'
+  };
+  assert.equal(h.element('binDecision').textContent, labels.PLASTIC);
+  for (const [index, bin] of ['PAPER', 'METAL', 'ORGANIC'].entries()) {
+    const poll = h.run('pollState()');
+    await h.respond(index + 1, { ...sample, bin, confidence: null });
+    await poll;
+    assert.equal(h.element('binDecision').textContent, labels[bin]);
+    assert.equal(h.element('confidenceValue').textContent, '—');
+  }
+});
+
 test('history shows confirmed sorts once across repeated polls and prediction changes', async () => {
   const h = harness();
-  const completed = { id: 'sort-1', label: 'Plastic bottle', bin: 'RECYCLE',
-    completed_at: '2026-11-07T05:31:00Z' };
-  const state = { ...sample, recent_sorts: [completed] };
+  const completed = [
+    { id: 'sort-4', label: 'Paper flyer', bin: 'PAPER', completed_at: '2026-11-07T05:34:00Z' },
+    { id: 'sort-3', label: 'Plastic bottle', bin: 'PLASTIC', completed_at: '2026-11-07T05:33:00Z' },
+    { id: 'sort-2', label: 'Metal can', bin: 'METAL', completed_at: '2026-11-07T05:32:00Z' },
+    { id: 'sort-1', label: 'Banana peel', bin: 'ORGANIC', completed_at: '2026-11-07T05:31:00Z' }
+  ];
+  const state = { ...sample, recent_sorts: completed };
   await h.respond(0, state);
   const list = h.element('sortHistory');
   assert.equal(h.element('historyStatus').textContent, 'LIVE');
-  assert.equal(list.children.length, 1);
-  assert.equal(list.children[0].children[1].textContent, 'Plastic bottle');
+  assert.equal(list.children.length, 4);
+  assert.deepEqual(list.children.map(row => row.children[2].textContent),
+    ['Paper bin', 'Plastic bin', 'Metal bin', 'Organic bin']);
+  assert.deepEqual(list.children.map(row => row.children[0].dataset.bin),
+    ['PAPER', 'PLASTIC', 'METAL', 'ORGANIC']);
   const firstRow = list.children[0];
 
   const repeatedPoll = h.run('pollState()');
-  await h.respond(1, { ...state, label: 'Snack wrapper', bin: 'TRASH' });
+  await h.respond(1, { ...state, label: 'Banana peel', bin: 'ORGANIC' });
   await repeatedPoll;
-  assert.equal(list.children.length, 1);
+  assert.equal(list.children.length, 4);
   assert.equal(list.children[0], firstRow);
 
-  const second = { id: 'sort-2', label: 'Snack wrapper', bin: 'TRASH',
-    completed_at: '2026-11-07T05:32:00Z' };
+  const next = { id: 'sort-5', label: 'Newspaper', bin: 'PAPER',
+    completed_at: '2026-11-07T05:35:00Z' };
   const nextPoll = h.run('pollState()');
-  await h.respond(2, { ...state, recent_sorts: [second, completed] });
+  await h.respond(2, { ...state, recent_sorts: [next, ...completed] });
   await nextPoll;
-  assert.equal(list.children.length, 2);
-  assert.equal(list.children[0].children[1].textContent, 'Snack wrapper');
-  assert.match(h.element('historyAnnouncement').textContent, /Snack wrapper sorted into Trash/);
+  assert.equal(list.children.length, 5);
+  assert.equal(list.children[0].children[1].textContent, 'Newspaper');
+  assert.match(h.element('historyAnnouncement').textContent, /Newspaper sorted into Paper bin/);
 });
 
 test('history distinguishes absent records from API loss', async () => {
