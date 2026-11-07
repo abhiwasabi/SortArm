@@ -3,11 +3,13 @@ import argparse
 import os
 from pathlib import Path
 import threading
+import time
 import urllib.error
 
 from .adapters import Camera, GeminiPredictor, prediction_error_message
 from .camera_sources import CameraSourceManager, Esp32SnapshotSource, validate_esp32_url
 from .core import Bridge
+from .scene_changes import SceneCadence, scene_signature
 from .server import make_server
 
 
@@ -65,23 +67,41 @@ def main():
 
     def prediction_loop():
         retry_delay = 1.5
+        rate_delay = 10.0
+        cadence = SceneCadence()
         while not shutdown.is_set():
             ticket = bridge.begin_prediction()
-            delay = 0.5  # Keep new-item response quick without flooding the cloud API.
+            delay = 0.2
             if ticket:
+                signature = scene_signature(ticket[3])
+                with bridge.lock:
+                    ready_to_sort = bridge.arm.state == 'READY' and bridge.pending_sort is None
+                if not cadence.due(signature, time.monotonic(), ready_to_sort=ready_to_sort):
+                    shutdown.wait(delay)
+                    continue
                 try:
                     result = camera.predict(ticket)
                     if result is not None:
                         bridge.accept_prediction(ticket, result)
+                        with bridge.lock:
+                            waiting_for_arm = bridge.status == 'New item detected. Waiting for the arm to finish.'
+                        cadence.sent(signature, time.monotonic(), waiting_for_arm=waiting_for_arm,
+                                     verify_empty=not result['item_present'])
                     retry_delay = 1.5
+                    rate_delay = 10.0
                 except Exception as exc:
                     message = prediction_error_message(exc)
                     print(message, flush=True)
-                    transient = (isinstance(exc, urllib.error.HTTPError) and exc.code in (500, 502, 503, 504)
+                    rate_limited = isinstance(exc, urllib.error.HTTPError) and exc.code == 429
+                    transient = (isinstance(exc, urllib.error.HTTPError) and exc.code in (429, 500, 502, 503, 504)
                                  or isinstance(exc, (ValueError, KeyError, IndexError)))
                     bridge.prediction_failed(ticket, message, retryable=transient)
-                    delay = retry_delay
-                    retry_delay = min(retry_delay * 2, 30)
+                    if rate_limited:
+                        delay = rate_delay
+                        rate_delay = min(rate_delay * 2, 120)
+                    else:
+                        delay = retry_delay
+                        retry_delay = min(retry_delay * 2, 30)
             shutdown.wait(delay)
 
     def poll_loop():
