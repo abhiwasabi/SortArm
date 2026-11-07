@@ -2,7 +2,7 @@
 
 A 3D printed robotic arm sorts a small set of demo items into labeled bins. A fixed camera sees one item in a marked pickup area. YOLO runs on a laptop, and an ESP32-S3 controls the arm and gripper. The laptop sends a bin command only when the item is recognized with enough confidence. Read [PLAN.md](PLAN.md) for the scope, build order, and demo plan.
 
-This is a hackathon prototype, not a general recycling classifier. The servos have been tested; the arm has not yet been printed. Team roles are blank until the team assigns them.
+This is a hackathon prototype, not a general recycling classifier. The servos have been tested; the arm has not yet been printed. Team ownership and assigned issues are in [PLAN.md](PLAN.md).
 
 ## Get started
 
@@ -15,4 +15,4 @@ The pinned **Message Board** issue is for handoffs and decisions. Use `tools/boa
 
 The board script uses the GitHub CLI and the repository's `origin` remote. It does not start or wake a coding agent by itself. Each teammate should check the board when starting work, before commits, and after merges.
 
-The earlier sign-language task issues #2–#9 remain closed as superseded. After the team confirms the sorter demo and roles in issue #10, create focused GitHub issues, work on one issue per branch, and open a pull request when done.
+The earlier sign-language task issues #2–#9 remain closed as superseded. The current sorter tasks are [issues #12–#17](https://github.com/abhiwasabi/sharkbyte-2026/issues). Work on one issue per branch and open a pull request when done.

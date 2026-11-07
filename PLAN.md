@@ -1,6 +1,6 @@
 # Robotic Waste Sorter — working plan
 
-The team has chosen a 3D printed robotic arm that recognizes a demo item and places it in a labeled bin. This is the current project direction. Confirm the exact object set, bin labels, and arm design in [kickoff issue #10](https://github.com/abhiwasabi/sharkbyte-2026/issues/10) before creating implementation issues.
+The team has chosen a 3D printed robotic arm that recognizes a demo item and places it in a labeled bin. This is the current project direction. Confirm the exact object set, bin labels, and arm geometry in [kickoff issue #10](https://github.com/abhiwasabi/sharkbyte-2026/issues/10) before final printing and model setup.
 
 ## Live demo
 
@@ -24,8 +24,9 @@ Aim for two bins and 2–3 item types that the chosen model can actually recogni
 
 ### Initial command contract
 
-- Laptop sends `SORT RECYCLE` or `SORT TRASH` only when the arm reports `READY` and the model passes the chosen confidence threshold. Rename the bins if the team chooses different categories.
-- ESP32-S3 reports `READY`, `BUSY`, `DONE`, or `ERROR` so the dashboard can show the real arm state. An unknown item produces no motion command.
+- Laptop sends newline-delimited USB-serial commands `HOME`, `SORT RECYCLE`, `SORT TRASH`, or `STOP`. Automatic SORT requires arm state `READY` and a confident supported prediction. Rename the bins if the team chooses different categories.
+- ESP32-S3 reports `READY`, `BUSY`, `DONE`, or `ERROR`. It accepts SORT only while READY; an unknown or low-confidence item produces no motion command.
+- The laptop backend exposes `GET /api/state` (label, confidence, bin, arm_state, connected, and counts), `GET /api/frame.jpg`, and `POST /api/stop` for the dashboard. Ana owns this contract and coordinates changes with Abhi and Yusuf.
 - Document the supported item types, their bin rules, and how they were tested. Post interface changes on the [Message Board](https://github.com/abhiwasabi/sharkbyte-2026/issues/1).
 
 ## Build order
@@ -41,16 +42,16 @@ If the camera or model takes longer than expected, keep the arm demo running wit
 
 ## Team roles
 
-Roles are intentionally blank until the team sets them.
+These are the current owners. Each linked issue has a concrete task and acceptance criteria.
 
 | Teammate | Role | Issues |
 | --- | --- | --- |
-| @abhiwasabi |  |  |
-| @PaulPio |  |  |
-| @anaoliveira01 |  |  |
-| @yusufdirdis |  |  |
+| @abhiwasabi | Vision and app | [#14](https://github.com/abhiwasabi/sharkbyte-2026/issues/14), [#15](https://github.com/abhiwasabi/sharkbyte-2026/issues/15) |
+| @PaulPio | Arm mechanics | [#12](https://github.com/abhiwasabi/sharkbyte-2026/issues/12) |
+| @anaoliveira01 | Integration and testing | [#16](https://github.com/abhiwasabi/sharkbyte-2026/issues/16), [#17](https://github.com/abhiwasabi/sharkbyte-2026/issues/17) |
+| @yusufdirdis | Electronics and firmware | [#13](https://github.com/abhiwasabi/sharkbyte-2026/issues/13) |
 
-The earlier sign-language task issues #2–#9 were closed as superseded. [Kickoff #10](https://github.com/abhiwasabi/sharkbyte-2026/issues/10) is the open planning issue. Create focused implementation issues after agreeing on scope and assignments. The work needs mechanical design/printing, ESP32 firmware and arm control, camera/YOLO, laptop-to-ESP32 integration, dashboard, testing, and submission materials.
+The earlier sign-language task issues #2–#9 were closed as superseded. [Kickoff #10](https://github.com/abhiwasabi/sharkbyte-2026/issues/10) tracks shared decisions. Implementation issues #12–#17 cover mechanical design/printing, ESP32 firmware and arm control, camera/YOLO, laptop-to-ESP32 integration, dashboard, testing, and submission materials.
 
 ## Demo and submission checklist
 
