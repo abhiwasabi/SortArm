@@ -63,6 +63,15 @@ lerobot-setup-motors --robot.type=so101_follower --robot.port=COM5
 
 Label each servo with its joint: 1 shoulder_pan, 2 shoulder_lift, 3 elbow_flex, 4 wrist_flex, 5 wrist_roll, 6 gripper. Assembly: [SO-101 guide](https://huggingface.co/docs/lerobot/so101).
 
+Then check the chain:
+
+```sh
+python -m arm.check_ids --port COM5            # expects IDs 1-6
+python -m arm.check_ids --port COM5 --scan 0-20 # find servos with unexpected IDs
+```
+
+It lists each ID with its joint, the model number it reports, and OK / MISSING / WRONG MODEL / UNEXPECTED, followed by what to check next. LeRobot only accepts model 777 (STS3215), so this is also how to find out whether the ST3215-HS servos work as they are. Exit code 0 means all six are OK. It never changes torque or settings. Full build steps: [hardware/ASSEMBLY.md](../hardware/ASSEMBLY.md).
+
 ### 3. Calibrate (assembled arm)
 
 Save the calibration in this repository, so every teammate's laptop can drive the same arm:
@@ -75,7 +84,16 @@ Follow the prompts. First put every joint in the middle of its range, then move 
 
 ### 4. Teach the poses
 
-Mark the pickup spot and all four bins on the table first. Put the bins on an arc around the arm's base, all within reach, and keep the pickup spot clear of the overhead camera's view of the arm. Then:
+Mark the pickup spot and all four bins on the table first. Put the bins on an arc around the arm's base, all within reach, and keep the pickup spot clear of the overhead camera's view of the arm. To plan the layout before marking it:
+
+```sh
+python -m arm.layout suggest --pickup 20,0 --bin-width 15 --bin-height 15
+python -m arm.layout check --pickup 20,0 --bin PAPER=18,-31.2 --bin PLASTIC=33.8,-12.3 --bin METAL=33.8,12.3 --bin ORGANIC=18,31.2
+```
+
+Coordinates are cm from the base axis (x forward, y left). `suggest` proposes a four-bin arc, and `check` tells you whether each point is reachable. It is a planning estimate from the official SO-101 model; it never moves the arm. Details: [hardware/ASSEMBLY.md](../hardware/ASSEMBLY.md), step 7.
+
+Then:
 
 ```sh
 python -m arm.teach

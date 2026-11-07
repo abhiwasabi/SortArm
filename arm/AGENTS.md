@@ -22,6 +22,8 @@ Use the repository-root `.venv` (Python 3.12, `pip install -r arm/requirements.t
 | `poses.py`, `poses.json` | Named poses; body joints in degrees, gripper `open`/`closed` stored separately |
 | `teach.py` | Record poses by hand (torque off) |
 | `cli.py` | Text-protocol console (stdout = state words only; stderr = `#` notes) |
+| `check_ids.py` | Bring-up: pings servo IDs on the bus and reports model numbers (no torque or setting changes) |
+| `layout.py`, `so101_geometry.json` | Reach check and four-bin layout suggestion from the official SO-101 URDF chain (planning estimate only; never commands the arm) |
 
 ## Invariants: do not break
 
