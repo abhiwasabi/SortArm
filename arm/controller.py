@@ -60,18 +60,45 @@ class _Command:
     finished: bool = False  # set under the controller lock with the command's final state
 
 
+class _TrackedBackend:
+    """Passes everything through, and remembers the last goal that was actually sent.
+
+    A failure can strike in the middle of a move. The freeze that follows must keep the gripper at
+    the last value really sent (e.g. part-way closed on an item), not at the previous move's goal,
+    which would reopen the jaws.
+    """
+
+    def __init__(self, inner: Backend):
+        self.inner = inner
+        self.last_written: Positions | None = None
+
+    def read(self) -> Positions:
+        return self.inner.read()
+
+    def write(self, goal: Positions) -> None:
+        self.inner.write(goal)
+        self.last_written = dict(goal)  # only after the write succeeded
+
+    def set_torque(self, enabled: bool) -> None:
+        self.inner.set_torque(enabled)
+
+    def close(self) -> None:
+        self.inner.close()
+
+
 class ArmController:
     def __init__(self, backend: Backend, poses: Poses, config: ArmConfig | None = None):
         self._config = config or ArmConfig()
         self._config.validate()
         poses.validate()
-        self._backend = backend
+        self._backend = _TrackedBackend(backend)
         self._poses = poses
 
         self._lock = threading.Lock()  # guards state, detail, current command, connected, last_done
         self._cmd: _Command | None = None
         self._cmd_seq = 0
         self._closed = False
+        self._disconnected = False
         self._state = ArmState.ERROR
         self._detail: str | None = "not homed: send HOME"
         self._bus_lock = threading.Lock()  # held by a worker while it drives the arm, and by poll()
@@ -198,6 +225,7 @@ class ArmController:
             except Exception as exc:
                 error = exc
         finally:
+            self._disconnect_if_closing()  # a close() that timed out while this poll held the bus
             self._bus_lock.release()
 
         with self._lock:
@@ -210,6 +238,7 @@ class ArmController:
                 # The arm may sag or drop its item before it answers again: start fresh from where it is.
                 # Safe without the bus lock: no command started (seq unchanged under _lock).
                 self._goal = None
+                self._backend.last_written = None
                 self._transition(ArmState.ERROR, f"connection lost: {error}")
             else:
                 logger.error("arm check failed: %r", error)
@@ -229,27 +258,34 @@ class ArmController:
                 return False
         return self._drain(deadline)
 
-    def close(self) -> None:
-        """Stop any motion, refuse new commands, and disconnect once the bus is free.
+    def close(self, timeout: float | None = None) -> bool:
+        """Stop any motion, refuse new commands, and disconnect once this controller owns the bus.
 
-        On the real arm, disconnecting turns torque off (the arm goes limp).
+        Returns True when disconnected. If the bus is still held after `timeout` seconds (default
+        settle_timeout_s + 2), e.g. by a write stuck on a hung bus, the backend is NOT touched:
+        returns False, and the stuck operation disconnects as soon as it ends. Disconnecting never
+        happens concurrently with a bus operation. On the real arm it turns torque off (limp arm).
         """
         with self._lock:
             if self._closed:
-                return
+                return self._disconnected
             self._closed = True
             cmd = self._cmd
             active = cmd is not None and not cmd.finished
         if active:
             self.stop()
-        got_bus = self._bus_lock.acquire(timeout=self._config.settle_timeout_s + 2.0)
+        if timeout is None:
+            timeout = self._config.settle_timeout_s + 2.0
+        if not self._bus_lock.acquire(timeout=timeout):
+            logger.warning("close: the arm bus is still busy; it will disconnect when that operation ends")
+            return False
         try:
-            self._drain(time.monotonic() + 1.0)
-            self._events.put(_STOP_NOTIFIER)
-            self._backend.close()
+            self._disconnect_if_closing()
         finally:
-            if got_bus:
-                self._bus_lock.release()
+            self._bus_lock.release()
+        if self._disconnected and threading.current_thread() is not self._notifier:
+            self._notifier.join(timeout=1.0)  # let the last notifications (e.g. ERROR) be delivered
+        return self._disconnected
 
     # ----- motion plans -----------------------------------------------------------------------
 
@@ -303,8 +339,34 @@ class ArmController:
         self._local.rejection = None
         return True
 
+    def _disconnect_if_closing(self) -> None:
+        """Disconnect if close() was requested and no command is still running.
+
+        Call only while holding _bus_lock, so the disconnect never overlaps a bus operation. The
+        notifier stops after delivering everything already queued.
+        """
+        with self._lock:
+            if not self._closed or self._disconnected:
+                return
+            if self._cmd is not None and not self._cmd.finished:
+                return  # that command's worker disconnects after its final state change
+            self._disconnected = True
+        self._events.put(_STOP_NOTIFIER)
+        try:
+            self._backend.close()
+        except Exception:
+            logger.exception("could not disconnect cleanly")
+
     def _run(self, cmd: _Command, plan: list[Step]) -> None:
-        failure, lost = self._drive(cmd, plan)
+        try:
+            self._finish(cmd, *self._drive(cmd, plan))
+        finally:
+            # A close() that could not get the bus (this worker held it) completes here, after this
+            # command's final hold write and state change.
+            with self._bus_lock:
+                self._disconnect_if_closing()
+
+    def _finish(self, cmd: _Command, failure: str | None, lost: bool) -> None:
         with self._lock:
             # Decided under the lock, so a concurrent stop() either lands before (-> ERROR here)
             # or after (stop() then sees the command finished and enters ERROR itself).
@@ -343,6 +405,7 @@ class ArmController:
                 logger.error("%s: connection lost: %s", cmd.name, exc)
                 self._freeze()
                 self._goal = None  # the arm may sag or be moved before it answers again
+                self._backend.last_written = None
                 return f"connection lost: {exc}", True
             except Exception as exc:  # a servo error, a bug, or a bad setting
                 logger.exception("%s failed", cmd.name)
@@ -351,8 +414,13 @@ class ArmController:
         return None, False
 
     def _freeze(self) -> None:
-        """Best-effort hold after an unexpected failure, keeping the gripper's last command."""
-        gripper = self._goal[GRIPPER] if self._goal else None
+        """Best-effort hold after an unexpected failure, keeping the gripper's last command.
+
+        "Last command" is the last gripper value actually sent, which can be part-way through a
+        move, not the previous move's goal (that would reopen a closing gripper).
+        """
+        sent = self._backend.last_written
+        gripper = sent[GRIPPER] if sent else (self._goal[GRIPPER] if self._goal else None)
         try:
             self._goal = hold(self._backend, gripper)
         except Exception:

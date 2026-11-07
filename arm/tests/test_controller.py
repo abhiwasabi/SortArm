@@ -15,7 +15,7 @@ from arm.backend import MockBackend
 from arm.cli import handle_line
 from arm.config import BODY_JOINTS, ArmConfig
 from arm.controller import ArmController, ArmState
-from arm.motion import MotionError, move_to
+from arm.motion import MotionError, max_catchup, move_to
 from arm.poses import Poses, PosesError, demo_poses, load, save
 
 POSES = demo_poses()
@@ -236,7 +236,7 @@ def test_stop_racing_a_new_command_always_ends_in_error():
             barrier.wait()
             arm.sort("PAPER")
 
-        sorter = threading.Thread(target=do_sort)
+        sorter = threading.Thread(target=do_sort, daemon=True)
         sorter.start()
         barrier.wait()
         arm.stop()
@@ -593,7 +593,7 @@ def test_stale_poll_result_never_overrides_a_newer_command():
     arm, backend, states = homed_arm()
     backend.read_gate = threading.Event()
     backend.fail_once = ConnectionError
-    poller = threading.Thread(target=arm.poll)
+    poller = threading.Thread(target=arm.poll, daemon=True)
     poller.start()
     time.sleep(0.05)  # poll is now blocked inside its read
     assert arm.home()  # accepted; its worker waits for the bus
@@ -632,7 +632,7 @@ def test_rejection_reasons_are_per_thread():
         accepted.wait(2)
         other.append(arm.last_rejection)
 
-    t = threading.Thread(target=other_thread)
+    t = threading.Thread(target=other_thread, daemon=True)
     t.start()
     rejected.wait(2)
     assert arm.sort("PAPER")  # this thread's command is accepted
@@ -682,3 +682,118 @@ def test_the_old_two_bin_names_are_rejected_without_motion(old_bin):
     assert not arm.sort(old_bin)
     assert "unknown bin" in arm.last_rejection
     assert len(backend.writes) == writes
+
+
+# ----- PR #25 follow-ups (Codex review comments) -------------------------------------------------
+
+
+def test_fault_mid_close_freezes_the_gripper_where_it_was_sent_not_reopened():
+    # A servo error strikes part-way through closing on an item. The freeze must keep the last
+    # gripper value actually sent, not reopen to the previous move's goal ("open").
+    arm, backend, _ = homed_arm(fast_config(gripper_speed=200.0))
+    sent: list[float] = []
+    failed = {"yet": False}
+
+    def hook(goal):
+        if failed["yet"] or not (at(goal, "pick") and CLOSED < goal["gripper"] < OPEN):
+            return
+        if len(sent) == 3:
+            failed["yet"] = True
+            raise RuntimeError("servo 6 refused the write")
+        sent.append(goal["gripper"])
+
+    backend.write_hook = hook
+    assert arm.sort("PAPER")
+    assert arm.wait_idle(3)
+    assert arm.state is ArmState.ERROR
+    assert arm.detail.startswith("SORT PAPER failed")
+    freeze = backend.writes[-1]
+    assert freeze["gripper"] == sent[-1]
+    assert CLOSED < freeze["gripper"] < OPEN
+
+
+def test_close_never_disconnects_while_a_hung_operation_holds_the_bus():
+    # Codex's reproduction: the bus hangs mid-move, so close() cannot get it in time. It must not
+    # disconnect underneath the stuck write; the worker disconnects when it ends.
+    arm, backend, _ = homed_arm(fast_config(speed_deg_s=50.0, settle_timeout_s=0.1))
+    assert arm.sort("PAPER")
+    time.sleep(0.05)
+    gate = threading.Event()
+    backend.write_gate = gate
+    try:
+        assert arm.close(timeout=0.2) is False
+        assert not backend.closed
+    finally:
+        backend.write_gate = None
+        gate.set()  # the stuck write completes; the cancelled worker holds, reports, then disconnects
+    assert wait_for(lambda: backend.closed, timeout=3)
+    assert backend.writes_after_close == 0
+    assert arm.state is ArmState.ERROR
+    assert not arm.home()
+
+
+def test_close_waits_for_a_hung_poll_then_disconnects():
+    arm, backend, _ = homed_arm()
+    gate = threading.Event()
+    backend.read_gate = gate
+    poller = threading.Thread(target=arm.poll, daemon=True)
+    poller.start()
+    time.sleep(0.05)  # poll now holds the bus, stuck in its read
+    try:
+        assert arm.close(timeout=0.2) is False
+        assert not backend.closed
+    finally:
+        backend.read_gate = None
+        gate.set()
+    poller.join(2)
+    assert backend.closed
+    assert backend.writes_after_close == 0
+
+
+def test_idle_close_disconnects_at_once():
+    arm, backend, states = homed_arm()
+    assert arm.stop()
+    t0 = time.monotonic()
+    assert arm.close() is True
+    assert time.monotonic() - t0 < 1.5
+    assert backend.closed
+    assert states == [ArmState.ERROR]  # delivered before close() returned
+    assert not arm.poll()
+    assert arm.close() is True  # a second close reports the same
+
+
+def test_a_delayed_write_does_not_cause_a_catch_up_burst():
+    # One bus write takes 150 ms. Afterwards the move must carry on at its normal pace: no burst of
+    # overdue steps back-to-back, and never faster than speed_deg_s.
+    period, speed = 0.01, 100.0
+    config = fast_config(speed_deg_s=speed, rate_hz=1 / period)
+    backend = MockBackend()
+    count = {"writes": 0}
+
+    def hook(goal):
+        count["writes"] += 1
+        if count["writes"] == 5:
+            time.sleep(0.15)
+
+    backend.write_hook = hook
+    move_to(backend, None, {"shoulder_lift": -30.0}, config, threading.Event())
+
+    times, lifts = backend.write_times, [w["shoulder_lift"] for w in backend.writes]
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    assert lifts[-1] == -30.0
+    assert min(gaps) >= 0.8 * period  # no back-to-back burst after the delay
+    for (a, b), gap in zip(zip(lifts, lifts[1:]), gaps):
+        assert abs(b - a) <= speed * gap * 1.05  # never faster than speed_deg_s
+        assert abs(b - a) <= speed * max_catchup(period) + 1e-9  # bounded step, even after the stall
+
+
+def test_consecutive_moves_never_send_back_to_back_writes():
+    # The arm is already within tolerance after a move's final write, so settling returns at once.
+    # The next move's first write must still come a full period after that final write.
+    period = 0.01
+    config = fast_config(speed_deg_s=100.0, rate_hz=1 / period)
+    backend = MockBackend()
+    goal = move_to(backend, None, {"shoulder_lift": -10.0}, config, threading.Event())
+    move_to(backend, goal, {**goal, "shoulder_lift": -20.0}, config, threading.Event())
+    gaps = [b - a for a, b in zip(backend.write_times, backend.write_times[1:])]
+    assert min(gaps) >= 0.8 * period

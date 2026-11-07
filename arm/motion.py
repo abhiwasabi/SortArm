@@ -53,6 +53,11 @@ def move_to(backend: Backend, start: Positions | None, target: Positions, config
     the arm holds and MotionStopped is raised. Afterwards it waits until every body joint is within
     tolerance, re-sending the goal (the gripper is not checked: it may be closed on an item).
     Returns the goal now commanded.
+
+    Pacing: each write advances the goal by the time that really passed since the previous write
+    *finished*, capped at `max_catchup(period)`, and every write is followed by a full period's wait.
+    So the commanded goal never moves faster than the configured speed, and a delayed bus write or
+    a stalled process never causes a burst of catch-up steps; it only makes the move take longer.
     """
     if start is None:
         start = backend.read()
@@ -64,23 +69,40 @@ def move_to(backend: Backend, start: Positions | None, target: Positions, config
         speed = config.gripper_speed if joint == GRIPPER else config.speed_deg_s
         duration = max(duration, abs(goal[joint] - start[joint]) / speed)
     period = 1.0 / config.rate_hz
-    steps = max(1, math.ceil(duration / period))
+    cap = max_catchup(period)
 
     commanded = start
-    t0 = time.monotonic()
-    for i in range(1, steps + 1):
+    progress = 0.0  # seconds of motion commanded so far, out of `duration`
+    elapsed = period  # the first step moves one period's worth
+    while True:
         if stop.is_set():
             raise MotionStopped(hold(backend, commanded[GRIPPER]))
-        if i == steps:
+        progress = min(duration, progress + min(elapsed, cap))
+        if progress >= duration:
             commanded = dict(goal)
         else:
-            frac = i / steps
+            frac = progress / duration
             commanded = {joint: start[joint] + (goal[joint] - start[joint]) * frac for joint in JOINTS}
         backend.write(commanded)
-        stop.wait(max(0.0, t0 + i * period - time.monotonic()))
+        written_at = time.perf_counter()  # perf_counter: monotonic() ticks only every ~16 ms on Windows
+        # Pace after every write, the final one included: otherwise, when the arm is already within
+        # tolerance, _settle() returns at once and the next move's first write follows back-to-back.
+        stop.wait(period)
+        if progress >= duration:
+            break
+        elapsed = time.perf_counter() - written_at
 
     _settle(backend, goal, config, stop)
     return goal
+
+
+def max_catchup(period: float) -> float:
+    """Most motion time one write may add: two periods, or 20 ms for very short periods.
+
+    It absorbs ordinary sleep jitter (Windows timers often wake late) without slowing the move,
+    while bounding any single goal step after a stall to a fraction of a degree at demo speeds.
+    """
+    return max(2.0 * period, 0.02)
 
 
 def _settle(backend: Backend, goal: Positions, config: ArmConfig, stop: threading.Event) -> None:
