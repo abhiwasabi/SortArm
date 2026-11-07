@@ -76,7 +76,7 @@ function renderArm() {
 
   if (!backendOnline) {
     label = "Offline";
-    description = "Dashboard API unavailable. Use the physical power cutoff if motion must stop.";
+    description = "System connection unavailable. Use the physical power cutoff if motion must stop.";
     tone = "bad";
     badge = "API OFFLINE";
   } else if (!snapshot?.connected) {
@@ -120,8 +120,8 @@ function render() {
     ui.sessionStatus.textContent = "Previewing sample data";
     ui.lastUpdate.textContent = "No hardware commands are sent";
   } else if (!backendOnline) {
-    ui.sessionStatus.textContent = "Dashboard API offline";
-    ui.lastUpdate.textContent = "Waiting for /api/state";
+    ui.sessionStatus.textContent = "System offline";
+    ui.lastUpdate.textContent = "Waiting for a connection";
   } else {
     ui.sessionStatus.textContent = snapshot?.connected ? "System connected" : "Arm controller disconnected";
     ui.lastUpdate.textContent = "Last API response " + lastResponseAt.toLocaleTimeString();

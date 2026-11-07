@@ -54,7 +54,7 @@ export function derivePrediction(state, options = {}) {
 
   if (!backendOnline) {
     return { kind: "offline", label: "No current item", confidence: null, bin: null,
-      note: "Dashboard API unavailable. Predictions are hidden until it reconnects." };
+      note: "System unavailable. Predictions are hidden until it reconnects." };
   }
   if (options.cameraOnline === false) {
     return { kind: "camera-offline", label: "No current item", confidence: null, bin: null,
@@ -82,7 +82,7 @@ export function derivePrediction(state, options = {}) {
     bin: state.bin,
     note: state.predictionAt === null
       ? "Latest API response. Capture time was not supplied."
-      : "Detection from the pickup camera."
+      : "Detection from the camera."
   };
 }
 
