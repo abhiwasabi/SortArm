@@ -65,7 +65,7 @@ def main():
     def prediction_loop():
         while not shutdown.is_set():
             ticket = bridge.begin_prediction()
-            delay = 0.1
+            delay = 0.5  # Keep new-item response quick without flooding the cloud API.
             if ticket:
                 try:
                     result = camera.predict(ticket)
