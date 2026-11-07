@@ -23,10 +23,14 @@ The current ownership split is recorded here, in [PLAN.md](PLAN.md), and in the 
 
 | Teammate | Role | Areas or folders |
 | --- | --- | --- |
-| @abhiwasabi | Vision and app | YOLO prediction, item-to-bin rules, web dashboard |
-| @PaulPio | Arm mechanics | CAD/3D printing, gripper, bin layout |
-| @anaoliveira01 | Integration and testing | Laptop-to-ESP32 bridge, app state, end-to-end trials, submission prep |
-| @yusufdirdis | Electronics and firmware | Servo power/wiring, ESP32-S3 arm control, stop logic |
+| @abhiwasabi | Vision and app | Vision prediction, item-to-bin rules, web dashboard |
+| @PaulPio | Arm mechanics and control | CAD/3D printing, gripper, four-bin layout, SO-101 arm controller and poses |
+| @anaoliveira01 | Integration and testing | Laptop bridge, app state, end-to-end trials, submission prep |
+| @yusufdirdis | Electronics and firmware | Servo power/wiring, stop logic; proposed ESP32-S3 stop/status accessory |
+
+## Current material-bin contract
+
+The user chose four destinations in [issue #23](https://github.com/abhiwasabi/sharkbyte-2026/issues/23): `PAPER`, `PLASTIC`, `METAL`, and `ORGANIC`. Use exactly these uppercase names for predictor and bridge bin decisions, `/api/state.counts` keys, completed-sort history bins, and arm SORT destinations. Unknown or unsupported items have no route (`null`). The older `RECYCLE` and `TRASH` references in issues and branches are superseded. Four physical bin positions and taught `above_<bin>` arm poses must be verified before claiming the hardware sorts all four materials. See [PLAN.md](PLAN.md) for the updated workflow.
 
 ## Git workflow
 

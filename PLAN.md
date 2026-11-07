@@ -1,42 +1,42 @@
 # Robotic Waste Sorter — working plan
 
-The team has chosen a 3D printed robotic arm that recognizes a demo item and places it in a labeled bin. This is the current project direction. Confirm the exact object set, bin labels, and arm geometry in [kickoff issue #10](https://github.com/abhiwasabi/sharkbyte-2026/issues/10) before final printing and model setup.
+The team has chosen a 3D printed robotic arm that recognizes a demo item and places it in one of four labeled bins: **Paper, Plastic, Metal, or Organic**. Confirm the exact objects and arm geometry in [kickoff issue #10](https://github.com/abhiwasabi/sharkbyte-2026/issues/10) before final printing and model setup.
 
 ## Live demo
 
 1. Place one dry, lightweight item in a marked pickup area.
-2. A fixed camera shows the item to a YOLO model running on a laptop.
-3. A simple, documented rule maps a recognized item type to a demo bin. Low confidence or unknown items pause for human review.
-4. The laptop sends a command to the ESP32-S3. The 3D printed arm follows tested pickup and drop positions, releases the item into the bin, and returns home.
-5. A small dashboard shows the camera view, detected item, confidence, chosen bin, arm state, and counts.
+2. A fixed camera sends frames to the laptop's vision component. The team is still settling the model and decision rule in #14 and #16.
+3. A documented decision maps a supported item to PAPER, PLASTIC, METAL, or ORGANIC. Unknown or uncertain items do not start an automatic sort.
+4. The laptop asks the arm controller to pick the item and move to the taught position above its bin, release it, and return home. Paul is building the SO-101 arm controller in #20; the ESP32-S3's proposed role is a physical stop/status accessory, pending team agreement.
+5. The dashboard shows the camera view, detected item, chosen bin, arm state, confirmed counts, and recent completed sorts.
 
-Aim for two bins and 2–3 item types that the chosen model can actually recognize. Pick objects that are easy for the gripper to handle. Keep the pickup area and bin positions fixed. The system demonstrates object recognition and sorting; an image alone cannot prove that an item is clean or accepted by a local recycling program.
+Choose at least one item per category that the vision component can identify and the gripper can handle. Keep the pickup area and all four bin positions fixed. The system demonstrates recognition and material sorting; an image alone cannot establish an item's exact composition or local disposal eligibility.
 
 ## Architecture
 
-**Camera → laptop YOLO → item-to-bin rule → command → ESP32-S3 → servos/gripper → bin.**
+**Camera → laptop vision and bin decision → laptop bridge → SO-101 arm controller → gripper → one of four bins.**
 
 - Use a fixed overhead camera so its view does not move with the arm. First get frames from a laptop webcam or USB camera. An ESP32 camera stream is an option if it is stable and available.
-- Run YOLO inference on the laptop. The ESP32-S3 handles arm control, sensors if needed, and status. On-device model inference is a stretch goal only after the full loop works.
-- Start with USB serial between laptop and ESP32-S3 for a reliable demo. Wi-Fi can be added later if needed.
-- Use saved arm positions for home, pickup, and each bin; move slowly and test collision clearance. Give the servos an appropriate external power supply and share ground with the controller.
+- Run the selected vision model on the laptop. Keep its output contract stable while #14 and #16 settle the model and confidence meaning. A numeric confidence may be absent, especially for a model whose self-reported score is not a calibrated probability.
+- The planned SO-101 arm control in #20 runs on the laptop through a USB bus-servo adapter. An ESP32-S3 stop/status accessory is proposed but is not required to choose a bin or drive the arm.
+- Teach and test home, pickup, and four physical drop positions: `above_paper`, `above_plastic`, `above_metal`, and `above_organic`. Move slowly and verify reach and collision clearance before using real items. Power the servos from an appropriate external supply.
 - Put an emergency stop or immediate stop command within reach during testing and the demo.
 
-### Initial command contract
+### Sorting contract
 
-- Laptop sends newline-delimited USB-serial commands `HOME`, `SORT RECYCLE`, `SORT TRASH`, or `STOP`. Automatic SORT requires arm state `READY` and a confident supported prediction. Rename the bins if the team chooses different categories.
-- ESP32-S3 reports `READY`, `BUSY`, `DONE`, or `ERROR`. It accepts SORT only while READY; an unknown or low-confidence item produces no motion command.
-- The laptop backend exposes `GET /api/state` (label, confidence, bin, arm_state, connected, and counts), `GET /api/frame.jpg`, and `POST /api/stop` for the dashboard. Ana owns this contract and coordinates changes with Abhi and Yusuf.
+- The supported bin names are `PAPER`, `PLASTIC`, `METAL`, and `ORGANIC`. The laptop bridge calls the arm controller with one of these names or issues no SORT for an unknown item. Its command form is `SORT <BIN>`, alongside `HOME` and `STOP`; #20 must add the four names and their required poses before physical sorting works. The bridge must apply its uncertainty and safety gate before dispatching SORT; the dashboard may display a valid backend bin decision even when `confidence` is null.
+- The arm reports `READY`, `BUSY`, `DONE`, or `ERROR`. It accepts SORT only while READY. The bridge updates a bin count only after a completed SORT reports DONE.
+- The laptop backend exposes `GET /api/state` with `label`, `confidence`, `bin` (one of the four names or null), `arm_state`, `connected`, and `counts` with PAPER, PLASTIC, METAL, and ORGANIC keys. It may also expose `prediction_at` and `recent_sorts` for completed items. The dashboard also uses `GET /api/frame.jpg` and `POST /api/stop`. Ana owns the bridge contract and coordinates changes with Abhi and Paul.
 - Document the supported item types, their bin rules, and how they were tested. Post interface changes on the [Message Board](https://github.com/abhiwasabi/sharkbyte-2026/issues/1).
 
 ## Build order
 
-1. Choose the exact 2–3 demo items, two bin labels, camera position, arm reach, and gripper shape. Measure the pickup and bin distances before printing.
-2. Print and assemble the smallest arm that can reach the marked pickup area and both bins. Test gripper fit and power with the chosen items.
-3. Make the arm execute a repeatable manual sequence: home → pick → bin A → home, then bin B. Record tested positions and add a stop command.
-4. Make the camera and laptop model recognize the chosen items under demo lighting. Check confusing items and select a confidence threshold. Add an `UNKNOWN` result.
-5. Connect the laptop to the ESP32-S3. Complete one camera-to-bin path, then the second bin.
-6. Add the dashboard and counts. Rehearse repeated cycles, failures, recovery, lighting, power, and a short live explanation.
+1. Choose safe demo items for PAPER, PLASTIC, METAL, and ORGANIC, plus camera position, arm reach, and gripper shape. Measure the pickup spot and four bin distances before fixing the layout.
+2. Assemble the SO-101 arm and place four labeled bins where it can reach them. Test gripper fit and servo power with the chosen items.
+3. Teach home, pickup, and all four `above_<bin>` positions. Manually test each path and STOP before enabling automatic sorting.
+4. Make the camera and laptop vision component classify the chosen items under demo lighting. Check confusing items and ensure unsupported or uncertain results have no automatic bin command.
+5. Connect vision, bridge, and arm controller. Complete one camera-to-bin path, then verify each remaining category.
+6. Check dashboard counts and per-item history against completed drops. Rehearse repeated cycles, failures, recovery, lighting, power, and a short live explanation.
 
 If the camera or model takes longer than expected, keep the arm demo running with clearly labeled manual bin buttons while continuing model work. The final presentation should state which steps are automated.
 
@@ -46,17 +46,17 @@ These are the current owners. Each linked issue has a concrete task and acceptan
 
 | Teammate | Role | Issues |
 | --- | --- | --- |
-| @abhiwasabi | Vision and app | [#14](https://github.com/abhiwasabi/sharkbyte-2026/issues/14), [#15](https://github.com/abhiwasabi/sharkbyte-2026/issues/15) |
-| @PaulPio | Arm mechanics | [#12](https://github.com/abhiwasabi/sharkbyte-2026/issues/12) |
+| @abhiwasabi | Vision and app | [#14](https://github.com/abhiwasabi/sharkbyte-2026/issues/14), [#15](https://github.com/abhiwasabi/sharkbyte-2026/issues/15), [#23](https://github.com/abhiwasabi/sharkbyte-2026/issues/23) |
+| @PaulPio | Arm mechanics and control | [#12](https://github.com/abhiwasabi/sharkbyte-2026/issues/12), [#20](https://github.com/abhiwasabi/sharkbyte-2026/issues/20) |
 | @anaoliveira01 | Integration and testing | [#16](https://github.com/abhiwasabi/sharkbyte-2026/issues/16), [#17](https://github.com/abhiwasabi/sharkbyte-2026/issues/17) |
 | @yusufdirdis | Electronics and firmware | [#13](https://github.com/abhiwasabi/sharkbyte-2026/issues/13) |
 
-The earlier sign-language task issues #2–#9 were closed as superseded. [Kickoff #10](https://github.com/abhiwasabi/sharkbyte-2026/issues/10) tracks shared decisions. Implementation issues #12–#17 cover mechanical design/printing, ESP32 firmware and arm control, camera/YOLO, laptop-to-ESP32 integration, dashboard, testing, and submission materials.
+The earlier sign-language task issues #2–#9 were closed as superseded. [Kickoff #10](https://github.com/abhiwasabi/sharkbyte-2026/issues/10) tracks shared decisions. The original issues #12–#17 still describe the earlier two-bin/ESP32 plan in places; #20 tracks the laptop-driven arm and #23 tracks the four-bin change. Owners should update their issue contracts as their work lands.
 
 ## Demo and submission checklist
 
-- Video and live demo of one item going from camera recognition to the correct bin, repeated for both bins
-- On-screen item, confidence, bin decision, and arm status, including an unknown-item example
+- Video and live demo of a supported item going from camera recognition to the correct bin for each of the four categories
+- On-screen item, confidence when available, bin decision, and arm status, including an unknown-item example
 - Wiring and power diagram, parts list, and arm design files
 - Setup commands, supported object list, bin rules, and observed test results
 - Short explanation of limitations: controlled pickup area, selected objects, and local recycling rules
