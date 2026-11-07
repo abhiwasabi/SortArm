@@ -140,6 +140,20 @@ test('bridge controls reflect homing, simulation, and paused sorting', async () 
   assert.equal(h.requests[1].url, '/api/home');
 });
 
+test('Start camera restores the simulated source after it is stopped', async () => {
+  const h = harness();
+  await h.respond(0, { ...sample, simulation: true, sorting_enabled: false, mock_available: true,
+    mock_camera: false, camera_source: 'off', camera_error: 'Camera off.' });
+  assert.equal(h.element('cameraSourceSelect').value, 'mock');
+  assert.equal(h.element('toggleCameraButton').textContent, 'Start camera');
+  h.element('toggleCameraButton').listeners.click();
+  assert.equal(h.requests[1].url, '/api/camera');
+  assert.equal(JSON.parse(h.requests[1].options.body).source, 'mock');
+  await h.respond(1, { accepted: true, state: { ...sample, simulation: true, sorting_enabled: false,
+    mock_available: true, mock_camera: true, camera_source: 'mock' } });
+  assert.equal(h.element('cameraSourceSelect').value, 'mock');
+});
+
 test('ESP32 camera settings load from the API and disable sorting without vision', async () => {
   const h = harness();
   await h.respond(0, { ...sample, arm_state: 'READY', sorting_enabled: false,

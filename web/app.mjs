@@ -107,8 +107,9 @@ function renderCameraSource(usableCamera) {
   ui.toggleCameraButton.disabled = !available || cameraChangePending;
   ui.stopCameraSettings.hidden = cameraOff;
   ui.stopCameraSettings.disabled = !available || cameraChangePending;
-  if (!cameraSelectionDirty && available && snapshot.cameraSource !== "off") {
-    ui.cameraSourceSelect.value = snapshot.cameraSource === "mock" ? "usb" :
+  ui.cameraSourceSelect.querySelector('option[value="mock"]').hidden = !snapshot?.mockAvailable;
+  if (!cameraSelectionDirty && available && (snapshot.cameraSource !== "off" || snapshot.mockAvailable)) {
+    ui.cameraSourceSelect.value = snapshot.cameraSource === "off" ? "mock" :
       snapshot.cameraSource === "usb" && ui.cameraSourceSelect.dataset.usbKind === "iphone" ? "iphone" : snapshot.cameraSource;
     if (snapshot.cameraSource === "esp32") ui.esp32CameraUrl.value = snapshot.cameraUrl ?? "";
   }
