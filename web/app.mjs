@@ -50,6 +50,10 @@ let stopPending = false;
 let awaitingStopState = false;
 let stopRequestedAt = null;
 let activeScenario = "ready";
+let frameRequestAt = null;
+let stateRequestSequence = 0;
+let stopMinimumSequence = 0;
+let stopConfirmationTimer = null;
 
 function setHealth(container, label, health, value) {
   container.dataset.health = health;
@@ -251,10 +255,14 @@ function setupDemo() {
 }
 
 function refreshLiveFrame() {
-  ui.cameraFrame.src = "/api/frame.jpg?t=" + Date.now();
+  // Do not cancel a slow JPEG on every state poll. Retry only after its deadline.
+  if (frameRequestAt !== null && Date.now() - frameRequestAt < FRAME_STALE_MS) return;
+  frameRequestAt = Date.now();
+  ui.cameraFrame.src = "/api/frame.jpg?t=" + frameRequestAt;
 }
 
 async function pollState() {
+  const requestSequence = ++stateRequestSequence;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -263,11 +271,11 @@ async function pollState() {
     snapshot = normalizeState(await response.json());
     backendOnline = true;
     lastResponseAt = new Date();
-    if (awaitingStopState) {
+    if (awaitingStopState && requestSequence >= stopMinimumSequence) {
       if (!snapshot.connected) {
         setNotice("ESP32 disconnected before STOP was confirmed. Use the physical power cutoff if needed.", "error");
         awaitingStopState = false;
-      } else if (snapshot.armState !== "BUSY") {
+      } else if (["READY", "DONE", "ERROR"].includes(snapshot.armState)) {
         setNotice(
           "Controller now reports " + snapshot.armState + ". Verify the arm is stationary before resuming.",
           snapshot.armState === "ERROR" ? "error" : "info"
@@ -315,6 +323,14 @@ async function requestStop() {
     if (!response.ok) throw new Error("Stop request failed: " + response.status);
     awaitingStopState = true;
     stopRequestedAt = Date.now();
+    // Ignore responses from GETs already in flight when POST completed.
+    stopMinimumSequence = stateRequestSequence + 1;
+    clearTimeout(stopConfirmationTimer);
+    stopConfirmationTimer = setTimeout(() => {
+      if (!awaitingStopState) return;
+      awaitingStopState = false;
+      setNotice("STOP was not confirmed after five seconds. Use the physical power cutoff if motion continues.", "error");
+    }, STOP_CONFIRM_TIMEOUT_MS);
     setNotice("STOP request sent. Waiting for the ESP32 to report its state.", "success");
   } catch {
     setNotice("STOP request failed. Use the physical servo power cutoff if the arm must stop.", "error");
@@ -330,11 +346,13 @@ if (demoMode) {
   setupDemo();
 } else {
   ui.cameraFrame.addEventListener("load", () => {
+    frameRequestAt = null;
     lastFrameAt = Date.now();
     cameraOnline = true;
     render();
   });
   ui.cameraFrame.addEventListener("error", () => {
+    frameRequestAt = null;
     lastFrameAt = null;
     cameraOnline = false;
     render();
