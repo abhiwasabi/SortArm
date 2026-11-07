@@ -19,14 +19,14 @@ The pinned **Message Board** issue is for short coordination messages between pe
 
 ## Work ownership
 
-Assign these at kickoff before editing project code. The team lead resolves overlapping assignments. Ask on the board before editing another person's area.
+Initial SignSpeak assignments are below; adjust them together at kickoff if needed. The team lead resolves overlapping assignments. Ask on the board before editing another person's area. Read [PLAN.md](PLAN.md) for the MVP and interface contract.
 
 | Area or folder | Owner | Notes |
 | --- | --- | --- |
-| Project scope and shared interfaces | @abhiwasabi | Coordinates changes across areas |
-| To be assigned | @paulpio | |
-| To be assigned | @anaoliveira01 | |
-| To be assigned | @yusufdirdis | |
+| Integration, API, demo, submission | @abhiwasabi | `server/`, `scripts/`, `docs/`, `PLAN.md` |
+| Camera and printed mount | @PaulPio | `firmware/`, `hardware/` |
+| Selected-sign recognition | @anaoliveira01 | `recognition/` |
+| Web app, UI, text to speech | @yusufdirdis | `web/` |
 
 ## Git workflow
 
