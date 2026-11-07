@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 650" role="img" aria-label="Illustrated sample camera frame with a wrapper in the pickup zone">
+  <defs>
+    <linearGradient id="tray" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#33494b"/>
+      <stop offset="1" stop-color="#192b2f"/>
+    </linearGradient>
+    <linearGradient id="wrapper" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#f9cf8d"/>
+      <stop offset=".5" stop-color="#bc8769"/>
+      <stop offset="1" stop-color="#6e5c6c"/>
+    </linearGradient>
+    <pattern id="grid" width="45" height="45" patternUnits="userSpaceOnUse">
+      <path d="M45 0H0V45" fill="none" stroke="#d5ebe0" stroke-opacity=".055"/>
+    </pattern>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="20"/>
+    </filter>
+  </defs>
+  <rect width="1000" height="650" fill="#101d21"/>
+  <rect x="40" y="34" width="920" height="582" rx="28" fill="url(#tray)" stroke="#537073" stroke-opacity=".6" stroke-width="3"/>
+  <rect x="62" y="55" width="876" height="540" rx="17" fill="url(#grid)"/>
+  <path d="M280 90h440M280 560h440M100 210v230M900 210v230" stroke="#b6e2c1" stroke-opacity=".25" stroke-width="2" stroke-dasharray="10 13"/>
+  <ellipse cx="504" cy="343" rx="216" ry="126" fill="#02090b" opacity=".5" filter="url(#shadow)"/>
+  <g transform="rotate(11 500 323)">
+    <path d="M294 242 346 220 354 238 416 211 456 227 526 203 583 219 625 206 668 231 718 225 703 277 725 321 698 364 711 415 659 400 616 425 563 403 513 430 462 405 395 424 351 398 298 411 314 361 289 318 313 280Z" fill="url(#wrapper)" stroke="#f7d39d" stroke-opacity=".82" stroke-width="4"/>
+    <path d="M342 221 357 280 345 333 359 398M668 233 652 277 670 331 658 400" stroke="#ffe3af" stroke-opacity=".7" stroke-width="8" fill="none"/>
+    <path d="m417 213 19 74-35 63 28 68m91-209 13 70-23 77 23 65m87-210-18 72 37 58-24 81" stroke="#714d5e" stroke-opacity=".36" stroke-width="12" fill="none"/>
+    <path d="M407 268h185l27 53-35 61H415l-30-62Z" fill="#e8b68a" fill-opacity=".65" stroke="#fce2b1" stroke-opacity=".6" stroke-width="3"/>
+    <path d="M435 300h141M449 325h117M469 348h77" stroke="#694b5a" stroke-width="8" stroke-linecap="round" opacity=".65"/>
+  </g>
+  <g fill="#d5f56f" opacity=".75">
+    <circle cx="137" cy="98" r="4"/><circle cx="863" cy="98" r="4"/>
+    <circle cx="137" cy="552" r="4"/><circle cx="863" cy="552" r="4"/>
+  </g>
+  <text x="82" y="584" fill="#bdd7d0" opacity=".65" font-family="monospace" font-size="15" letter-spacing="3">SAMPLE CAMERA FRAME / WRAPPER</text>
+</svg>
