@@ -63,9 +63,6 @@ class Handler(SimpleHTTPRequestHandler):
             path = urlsplit(self.path).path
             if path == '/api/stop':
                 accepted = self.bridge.stop()
-            elif path == '/api/classify':
-                self.bridge.classify_once()
-                accepted = True
             elif path == '/api/home':
                 accepted = self.bridge.home()
             elif path == '/api/sorting':

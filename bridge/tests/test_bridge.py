@@ -83,43 +83,6 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(self.arm.commands, ['PLASTIC', 'PLASTIC'])
         self.assertEqual(self.bridge.counts['PLASTIC'], 2)
 
-    def test_classify_once_consumes_one_request_and_never_moves(self):
-        self.bridge.classify_once()
-        ticket = self.bridge.begin_prediction()
-        self.assertIsNone(self.bridge.begin_prediction())
-        with self.assertRaises(ValueError):
-            self.bridge.classify_once()
-        self.assertFalse(self.bridge.accept_prediction(ticket, prediction()))
-        self.bridge.finish_prediction(ticket)
-        self.assertFalse(self.bridge.single_pending)
-        self.assertEqual(self.arm.commands, [])
-        self.assertFalse(self.bridge.enabled)
-        self.assertIn('Plastic bottle', self.bridge.status)
-
-    def test_single_result_after_stop_cannot_update_or_move(self):
-        self.bridge.classify_once()
-        ticket = self.bridge.begin_prediction()
-        self.bridge.stop()
-        self.assertFalse(self.bridge.accept_prediction(ticket, prediction()))
-        self.bridge.finish_prediction(ticket)
-        self.assertIsNone(self.bridge.prediction)
-        self.assertFalse(self.bridge.single_pending)
-        self.assertEqual(self.arm.commands, [])
-
-    def test_single_failure_releases_request_without_retry(self):
-        self.bridge.classify_once()
-        ticket = self.bridge.begin_prediction()
-        self.bridge.prediction_failed(ticket, 'Quota reached')
-        self.bridge.finish_prediction(ticket)
-        self.assertIsNone(self.bridge.begin_prediction())
-        self.assertFalse(self.bridge.single_pending)
-
-    def test_stop_cancels_queued_single_classification(self):
-        self.bridge.classify_once()
-        self.bridge.stop()
-        self.assertIsNone(self.bridge.begin_prediction())
-        self.assertFalse(self.bridge.single_pending)
-
     def test_history_uses_accepted_item_and_deduplicates_done(self):
         self.result()
         self.bridge.prediction = None

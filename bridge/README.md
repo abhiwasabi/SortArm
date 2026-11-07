@@ -64,7 +64,6 @@ Also configure Gemini as above. Paul must first verify the ST3215-HS motor model
 | `GET /api/state` | Existing prediction, connection, state, and counts; adds `simulation`, `mock_camera`, `sorting_enabled`, `status`, `arm_detail`, `awaiting_clear` |
 | `GET /api/frame.jpg` | Latest fresh frame, or 503; live JPEG / mock SVG |
 | `POST /api/stop` | Pause, invalidate pending results, call `arm.stop()` |
-| `POST /api/classify` | Queue one classification, pause continuous sorting, never dispatch SORT |
 | `POST /api/home` | Pause, invalidate pending results, request operator HOME; 409 if rejected |
 | `POST /api/sorting` | JSON `{"enabled": true}` or false; start requires READY/connected/fresh camera |
 | `POST /api/mock` | Full simulation only: `{"scenario":"empty"}`; bottle, paper, metal, organic, unknown, camera-offline also supported |
@@ -87,6 +86,6 @@ The dashboard now follows PR #24: PAPER, PLASTIC, METAL, ORGANIC. The runtime re
 
 ## Current verification and next work
 
-User-tested real camera + Gemini (`gemini-3.1-flash-lite`) with a simulated arm: plastic and metal worked. Ana subsequently reported completing the material tests; detailed per-material results are still to be recorded in #17. Physical hardware remains unverified. Camera images are resized to at most 960 pixels on the longest side and JPEG quality 80; Gemini requests time out after 30 seconds. Safe API diagnostics distinguish quota, authentication, transport, and malformed-response failures without exposing credentials.
+User-tested real camera + Gemini (`gemini-3.1-flash-lite`) with a simulated arm: plastic and metal worked. Paper testing hit Gemini quota; organic and physical hardware remain unverified. Camera images are resized to at most 960 pixels on the longest side and JPEG quality 80; Gemini requests time out after 30 seconds. Safe API diagnostics distinguish quota, authentication, transport, and malformed-response failures without exposing credentials.
 
-Sorting currently makes repeated classification requests, including empty-area checks. Pause sorting when finished to conserve quota. Use **Classify once** in Arm status to request one classification without motion. It pauses continuous sorting, disables repeat clicks while pending, and does not update counts/history. No HOME is required for classification alone. An already-running motion can finish; use STOP to interrupt it. YOLO is not connected yet; the direct-Gemini adapter is a test path pending Abhi's vision integration. All API keys remain environment variables.
+Sorting currently makes repeated classification requests, including empty-area checks. Pause sorting when finished to conserve quota. A Classify once control is planned but is not implemented in this change. YOLO is not connected yet; the direct-Gemini adapter is a test path pending Abhi's vision integration. All API keys remain environment variables.
