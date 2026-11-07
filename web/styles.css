@@ -226,3 +226,16 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
   html { scroll-behavior: auto; }
   .nav-link, .confidence-track span { transition: none; }
 }
+
+/* Laptop bridge controls follow the dashboard's existing card layout. */
+.bridge-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.control-button, #mockScenario { min-height: 40px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; background: #fff; color: #263b2d; font: inherit; font-size: 12px; }
+.control-button { cursor: pointer; }
+.control-button:disabled { opacity: .5; cursor: not-allowed; }
+.control-button:hover:not(:disabled) { background: #edf3eb; }
+.bridge-status { font-size: 12px; line-height: 1.5; color: #59645c; margin: 12px 0 0; }
+.runtime-mode { font-size: 10px; font-weight: 700; padding: 7px 9px; border-radius: 10px; background: #fff1d7; color: #755018; }
+#mockControls { padding: 20px; margin-bottom: 16px; }
+#mockControls label { display: block; font-size: 13px; margin-bottom: 8px; }
+#mockScenario { width: 100%; max-width: 320px; }
+@media (max-width: 520px) { .runtime-mode { max-width: 105px; text-align: center; } }

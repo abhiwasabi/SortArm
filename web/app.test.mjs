@@ -102,6 +102,21 @@ test('STOP warning deadline runs even while a state request is stalled', async (
   assert.match(h.element('notice').textContent, /not confirmed after five seconds/);
 });
 
+
+test('bridge controls reflect homing, simulation, and paused sorting', async () => {
+  const h = harness();
+  await h.respond(0, { ...sample, arm_state: 'READY', simulation: true,
+    mock_camera: true, sorting_enabled: false, status: 'Sorting paused.' });
+  assert.equal(h.element('bridgeControls').hidden, false);
+  assert.equal(h.element('runtimeMode').textContent, 'SIMULATED ARM');
+  assert.equal(h.element('mockControls').hidden, false);
+  assert.equal(h.element('sortingButton').textContent, 'Start sorting');
+  const command = h.run('bridgeCommand("/api/home")');
+  await h.respond(1, {});
+  await command;
+  assert.equal(h.requests[1].url, '/api/home');
+});
+
 test('renders four material totals and every route even without a confidence score', async () => {
   const h = harness();
   await h.respond(0, { ...sample, confidence: null });

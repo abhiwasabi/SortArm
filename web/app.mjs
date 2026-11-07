@@ -9,6 +9,13 @@ const BIN_DISPLAY = {
 
 const byId = (id) => document.getElementById(id);
 const ui = {
+  runtimeMode: byId("runtimeMode"),
+  bridgeControls: byId("bridgeControls"),
+  bridgeStatus: byId("bridgeStatus"),
+  homeButton: byId("homeButton"),
+  sortingButton: byId("sortingButton"),
+  mockControls: byId("mockControls"),
+  mockScenario: byId("mockScenario"),
   overviewSubtitle: byId("overviewSubtitle"),
   backendHealth: byId("backendHealth"),
   backendStatus: byId("backendStatus"),
@@ -48,6 +55,7 @@ let backendOnline = false;
 let cameraOnline = false;
 let lastFrameAt = null;
 let stopPending = false;
+let controlPending = false;
 let awaitingStopState = false;
 let stopRequestedAt = null;
 let frameRequestAt = null;
@@ -104,6 +112,7 @@ function renderArm() {
     };
     [label, description, tone] = states[snapshot.armState];
     badge = snapshot.armState;
+    if (snapshot.armState === "ERROR" && snapshot.armDetail) description = snapshot.armDetail;
   }
 
   ui.armState.textContent = label;
@@ -199,6 +208,16 @@ function render() {
     ? BIN_DISPLAY[prediction.bin].label : "No route selected";
 
   renderArm();
+  const bridgeAvailable = !previewMode && backendOnline && snapshot?.bridgeAvailable;
+  ui.bridgeControls.hidden = !bridgeAvailable;
+  ui.bridgeStatus.hidden = !bridgeAvailable;
+  ui.bridgeStatus.textContent = snapshot?.status ?? "";
+  ui.runtimeMode.hidden = !previewMode && !snapshot?.simulation;
+  ui.runtimeMode.textContent = previewMode ? "SAMPLE PREVIEW" : "SIMULATED ARM";
+  ui.mockControls.hidden = !bridgeAvailable || !snapshot?.mockCamera;
+  ui.homeButton.disabled = controlPending || !bridgeAvailable || !snapshot?.connected || snapshot?.armState === "BUSY";
+  ui.sortingButton.disabled = controlPending || !bridgeAvailable || (!snapshot?.sortingEnabled && (!snapshot?.connected || snapshot?.armState !== "READY" || !cameraOnline));
+  ui.sortingButton.textContent = snapshot?.sortingEnabled ? "Pause sorting" : "Start sorting";
   ui.stopButton.disabled = stopPending || (!previewMode && !backendOnline);
   ui.stopButton.querySelector("span").textContent = stopPending ? "SENDING..." : "STOP ARM";
   for (const bin of BIN_KEYS) {
@@ -320,6 +339,30 @@ async function requestStop() {
   }
 }
 
+async function bridgeCommand(path, body = {}) {
+  if (previewMode || controlPending || !backendOnline) return;
+  controlPending = true;
+  render();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "The arm did not accept the command.");
+    if (result.state) snapshot = normalizeState(result.state);
+    setNotice(path === "/api/home" ? "Homing requested. Sorting remains paused." : "Control updated.");
+  } catch (error) {
+    setNotice(error.name === "AbortError" ? "Request timed out. Check controller state before retrying." : error.message, "error");
+  } finally {
+    clearTimeout(timeout);
+    controlPending = false;
+    render();
+  }
+}
+
+ui.homeButton.addEventListener("click", () => bridgeCommand("/api/home"));
+ui.sortingButton.addEventListener("click", () => bridgeCommand("/api/sorting", { enabled: !snapshot?.sortingEnabled }));
+ui.mockScenario.addEventListener("change", () => bridgeCommand("/api/mock", { scenario: ui.mockScenario.value }));
 ui.stopButton.addEventListener("click", requestStop);
 if (previewMode) {
   setupPreview();

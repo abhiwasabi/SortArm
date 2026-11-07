@@ -32,6 +32,7 @@
     <header class="topbar">
       <div class="topbar-title"><strong>Sort Arm</strong><span>Dashboard</span></div>
       <div class="topbar-actions">
+        <span id="runtimeMode" class="runtime-mode" hidden></span>
         <button id="stopButton" class="stop-button" type="button" disabled><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/></svg><span>STOP ARM</span></button>
       </div>
     </header>
@@ -67,6 +68,11 @@
               <section class="inner-card arm-panel" id="arm" aria-labelledby="armTitle">
                 <div class="card-heading"><div><p class="small-label">MOTION</p><h2 id="armTitle">Robotic arm</h2></div><span id="armBadge" class="soft-badge" data-tone="neutral">UNKNOWN</span></div>
                 <div class="arm-state-wrap"><span class="arm-state-icon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M5 41h38M12 41v-7h15v7M18 34l-3-12 9-5 7 12-7 5M23 17l7-7 10 8-7 7" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15" cy="22" r="2.5" fill="currentColor"/><circle cx="33" cy="25" r="2.5" fill="currentColor"/></svg></span><div><span class="small-label">CONTROLLER STATE</span><strong id="armState" class="arm-state" aria-live="polite">Waiting</strong><p id="armDescription">Checking the arm connection.</p></div></div>
+                <div class="bridge-controls" id="bridgeControls" hidden>
+                  <button id="homeButton" class="control-button" type="button" disabled>Home arm</button>
+                  <button id="sortingButton" class="control-button" type="button" disabled>Start sorting</button>
+                </div>
+                <p id="bridgeStatus" class="bridge-status" role="status" hidden></p>
                 <p class="safety-note">Keep the physical power cutoff within reach.</p>
               </section>
             </div>
@@ -111,6 +117,11 @@
       <section id="settings" class="settings-view" aria-labelledby="settingsTitle" hidden>
         <div class="settings-heading"><p class="small-label">SYSTEM</p><h1 id="settingsTitle">Settings</h1><p>Connection details for the local sorting system.</p></div>
         <p id="previewSettingsNote" class="preview-settings-note" hidden>Sample preview only. No arm hardware is connected.</p>
+        <div id="mockControls" class="settings-card" hidden>
+          <label for="mockScenario">Simulated pickup area</label>
+          <select id="mockScenario"><option value="empty">Empty</option><option value="bottle">Plastic bottle</option><option value="paper">Paper sheet</option><option value="metal">Metal can</option><option value="organic">Banana peel</option><option value="unknown">Unknown item</option><option value="camera-offline">Camera disconnected</option></select>
+          <p class="bridge-status">Sample images and simulated motion. Choose Empty between items to allow another sort.</p>
+        </div>
         <div class="settings-card">
           <div class="settings-row" id="backendHealth" data-health="waiting"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="14" rx="2"/><path d="M7 10h10M7 14h6"/></svg></span><div class="settings-row-copy"><strong>Dashboard API</strong><span>Local app connection</span></div><div class="settings-state"><span class="health-light" aria-hidden="true"></span><span id="backendStatus">Connecting</span></div></div>
           <div class="settings-row" id="armHealth" data-health="waiting"><span class="settings-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 20h18M7 20v-4h8v4M9 16l-2-6 5-3 4 6-4 3M12 7l3-4 5 4-3 4"/></svg></span><div class="settings-row-copy"><strong>Arm controller</strong><span>SO-101 via laptop USB</span></div><div class="settings-state"><span class="health-light" aria-hidden="true"></span><span id="controllerStatus">Waiting</span></div></div>
