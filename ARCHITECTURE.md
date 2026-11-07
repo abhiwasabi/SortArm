@@ -104,7 +104,23 @@ arm.close()              # on shutdown: stops motion, refuses new commands, then
 
 ### Bridge → dashboard (#16 → #15)
 
-`GET /api/state` returns `label`, `confidence`, `bin`, `arm_state` (READY/BUSY/DONE/ERROR), `connected`, and `counts` with exactly the keys `PAPER`, `PLASTIC`, `METAL`, `ORGANIC`. It may include an optional `prediction_at` (ISO 8601) and `recent_sorts` (completed sorts, added from the DONE callback). `GET /api/frame.jpg` returns the latest frame. `POST /api/stop` must call `arm.stop()`. Full example: `web/README.md`.
+The bridge serves `web/` and this API on `127.0.0.1` only. POST requests must send a JSON object body; the Host and Origin headers are checked.
+
+| Endpoint | Body | Response | Moves the arm? |
+| --- | --- | --- | --- |
+| `GET /api/state` | — | The current state (fields below) | No |
+| `GET /api/frame.jpg` | — | Latest camera frame, or 503 | No |
+| `GET /api/cameras` | — | `{devices: [{id, name, index}]}` | No |
+| `GET /api/gemini` | — | `{configured, model}` | No |
+| `POST /api/stop` | `{}` | `{accepted: true, state}`; always accepted | Stops it: `arm.stop()` |
+| `POST /api/home` | `{}` | 200 `{accepted, state}`, or 409 `{accepted: false, error, state}` with the arm's reason | Yes: `arm.home()`; pauses auto-sorting |
+| `POST /api/sort` | `{"bin": "PAPER"}` | 200; 409 with `error` (the arm's reason, or "the previous sort is still finishing"); or 400 for an unknown bin or while auto-sorting is on | Yes: a manual `arm.sort(bin)`. Needs no camera or vision; counted on DONE as `"Manual"` |
+| `POST /api/sorting` | `{"enabled": true\|false}` | 200, or 400 with the reason start was refused | Indirectly: while enabled, each confident vision result triggers `arm.sort(bin)` |
+| `POST /api/camera` | `{source: "mock"\|"usb"\|"esp32"\|"off", url?, index?, device_id?}` | 200 or 400 | No (pauses auto-sorting) |
+| `POST /api/mock` | `{scenario}` | 200 or 400 (simulation only) | No |
+| `POST /api/gemini` | `{key, model?}` or `{disconnect: true}` | `{configured, model}` | No (pauses auto-sorting) |
+
+`GET /api/state` returns `label`, `confidence`, `bin`, `arm_state` (READY/BUSY/DONE/ERROR), `arm_detail` (the error text, or the running command while BUSY), `connected`, `bins` (the allowed bins, in order), and `counts` with exactly the keys `PAPER`, `PLASTIC`, `METAL`, `ORGANIC`. It also carries `recent_sorts` (completed sorts, added from the DONE callback), `sorting_enabled`, `status`, the camera and vision fields, and an optional `prediction_at` (ISO 8601). Details and examples: `web/README.md` and `bridge/README.md`.
 
 ## Hardware
 

@@ -51,6 +51,7 @@ class Bridge:
         self.max_age = max_age
         self.prediction_max_age = prediction_max_age
         self.lock = threading.RLock()
+        self._local = threading.local()  # per-request-thread rejection reason
         self.enabled = False
         self.epoch = 0
         self.awaiting_clear = False
@@ -75,6 +76,8 @@ class Bridge:
                 self.counts[record['bin']] += 1
                 self.recent_sorts.insert(0, dict(record, completed_at=datetime.now(timezone.utc).isoformat()))
                 del self.recent_sorts[20:]
+                if record.get('label') == 'Manual':
+                    self.status = 'Manual sort to ' + record['bin'] + ' done.'
             elif state == 'ERROR':
                 self.pending_sort = None
                 self.enabled = False
@@ -157,11 +160,45 @@ class Bridge:
             self.enabled = enabled
             self.invalidate('Sorting enabled.' if enabled else 'Sorting paused. Current motion can finish; use STOP to interrupt.')
 
+    def rejection_reason(self):
+        """Why this thread's last home()/manual_sort() was refused: the bridge's own reason, else the arm's."""
+        return getattr(self._local, 'rejection', None) or self.arm.last_rejection
+
     def home(self):
         with self.lock:
+            self._local.rejection = None
             self.enabled = False
             self.invalidate('Homing requested. Sorting remains paused.')
-            return self.arm.home()
+            accepted = self.arm.home()
+            self.status = ('Homing. Sorting remains paused.' if accepted
+                           else self.arm.last_rejection or 'Arm rejected HOME.')
+            return accepted
+
+    def manual_sort(self, bin_name):
+        with self.lock:
+            self._local.rejection = None
+            if not isinstance(bin_name, str) or bin_name not in self.allowed_bins:
+                raise ValueError('bin must be one of: ' + ', '.join(self.allowed_bins))
+            if self.enabled:
+                raise ValueError('Pause automatic sorting before a manual sort.')
+            if self.pending_sort is not None:
+                # The arm reports READY just before its DONE reaches on_state. A new sort accepted in
+                # that gap would take over the finished sort's record: the late DONE would count the
+                # new sort early (same bin) or the finished sort would never be counted (other bin).
+                self._local.rejection = 'The previous sort is still finishing; try again in a moment.'
+                self.status = self._local.rejection
+                return False
+            # Keep whatever was pending: if the arm rejects this request because an earlier sort
+            # is still running, that sort must still be counted when it reports DONE.
+            previous_sort, previous_clear = self.pending_sort, self.awaiting_clear
+            self.pending_sort = dict(id=str(uuid.uuid4()), label='Manual', bin=bin_name)
+            self.awaiting_clear = True
+            self.invalidate('Manual sort to ' + bin_name + ' requested.')
+            accepted = self.arm.sort(bin_name)
+            if not accepted:
+                self.pending_sort, self.awaiting_clear = previous_sort, previous_clear
+                self.status = self.arm.last_rejection or 'Arm rejected the manual sort.'
+            return accepted
 
     def stop(self):
         with self.lock:
@@ -237,6 +274,7 @@ class Bridge:
                         prediction_at=pred['prediction_at'] if pred else None,
                         arm_state=getattr(self.arm.state, 'value', self.arm.state),
                         connected=self.arm.connected, counts=dict(self.counts),
+                        bins=list(self.allowed_bins),
                         recent_sorts=[dict(row) for row in self.recent_sorts],
                         simulation=self.simulation, mock_camera=self.mock_camera,
                         mock_available=self.mock_available, camera_source=self.camera_source,

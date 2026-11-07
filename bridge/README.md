@@ -58,19 +58,32 @@ export ARM_PORT='/your/verified/usb-port'
 
 Also configure Gemini as above. Paul must first verify the ST3215-HS motor model and Hiwonder BusLinker V3 transport, calibrate, teach real poses, and test clearance. The reported hardware is approximately 20 kg·cm ST3215-HS on 12 V; the current LeRobot adapter is not yet proven with it. This bridge does not raise real motion speeds or substitute mock poses on physical hardware. STOP uses the local controller, not Gemini. Closing the controller can release torque; support the arm at shutdown and keep the physical power cutoff accessible.
 
+Real-arm startup needs all of the following:
+
+- Taught `home`, `above_pick`, `pick`, and `above_paper`, `above_plastic`, `above_metal`, `above_organic` poses, plus open/closed gripper settings. Teach them with `python -m arm.teach`.
+- A matching LeRobot calibration file for the configured arm ID; run `lerobot-calibrate` first.
+- `ARM_PORT` set to the verified serial port.
+- Both `GEMINI_API_KEY` and `GEMINI_MODEL` in the environment.
+- An available laptop/USB camera (`--camera`) or a working local ESP32 snapshot source (`--esp32-url`).
+
+Arm setup errors print a next step and exit with status 2. If the dashboard port is occupied, choose another with `--port`; the bridge stops and closes the arm and camera on server startup failure.
+
 ## API
 
 | Route | Behavior |
 | --- | --- |
-| `GET /api/state` | Prediction, controller, counts, camera source/status, simulation, and sorting state |
+| `GET /api/state` | Prediction, controller, counts, camera source/status, simulation, sorting state, and ordered allowed `bins` |
 | `GET /api/frame.jpg` | Latest fresh frame, or 503; live JPEG / mock SVG |
 | `POST /api/stop` | Pause, invalidate pending results, call `arm.stop()` |
 | `POST /api/home` | Pause, invalidate pending results, request operator HOME; 409 if rejected |
+| `POST /api/sort` | JSON `{"bin":"PAPER"}`; manually sort to an allowed bin while automatic sorting is paused; no camera or vision required |
 | `POST /api/sorting` | JSON `{"enabled": true}` or false; start requires READY/connected/fresh camera |
 | `POST /api/mock` | Full simulation only: `{"scenario":"empty"}`; bottle, paper, metal, organic, unknown, camera-offline also supported |
 | `POST /api/camera` | Select `mock`, `usb`, or `esp32` camera source; pauses sorting and clears the old decision |
 
 The server binds only to 127.0.0.1, serves static files only from `web/`, and rejects foreign hosts/origins for commands. Keep it local; it is not an authenticated remote-control service. Pause allows a current move to finish; STOP interrupts it. HOME completion never increments bin counts. Completion callbacks run on the controller notifier thread and update bridge state briefly under a lock; STOP waits outside that lock.
+
+`POST /api/sort` returns 200 with `{"accepted":true,"state":...}` when accepted. Rejected manual SORT and HOME requests return 409 with `{"accepted":false,"error":"<reason>","state":...}`: the arm's reason, or, for SORT, "The previous sort is still finishing; try again in a moment." while an earlier sort has not reported DONE yet (the arm shows READY a moment before its DONE reaches the bridge). A missing, non-string, or unsupported bin returns 400 with `{"error":...}`. Manual sorting while automatic sorting is enabled returns 400 with `{"error":"Pause automatic sorting before a manual sort."}`. Bin names must exactly match the uppercase values in `/api/state.bins` (normally PAPER, PLASTIC, METAL, ORGANIC). A manual sort increments its bin count and adds a `Manual` recent-sort record only after the controller reports matching DONE. Automatic sorting remains paused; the pickup area must clear before another automatic sort.
 
 ## Checks
 

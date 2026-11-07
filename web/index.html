@@ -71,6 +71,11 @@
                 <div class="bridge-controls" id="bridgeControls" hidden>
                   <button id="homeButton" class="control-button" type="button" disabled>Home arm</button>
                   <button id="sortingButton" class="control-button" type="button" disabled>Start sorting</button>
+                  <section id="manualSortCard" class="manual-sort-card" aria-labelledby="manualSortTitle" hidden>
+                    <h3 id="manualSortTitle">Manual sort (moves the arm)</h3>
+                    <p>Pause automatic sorting, then choose a bin. No camera or recognition is needed.</p>
+                    <div id="manualSortButtons" class="manual-sort-buttons"></div>
+                  </section>
                 </div>
                 <p id="bridgeStatus" class="bridge-status" role="status" hidden></p>
                 <p class="safety-note">Keep the physical power cutoff within reach.</p>

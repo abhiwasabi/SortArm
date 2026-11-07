@@ -1,11 +1,15 @@
+from contextlib import redirect_stderr
+import io
 import json
 from pathlib import Path
 import threading
 import unittest
+from unittest.mock import Mock, patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from bridge.adapters import MockSource
+from bridge.__main__ import main as bridge_main
 from bridge.camera_sources import CameraSourceManager
 from bridge.core import Bridge, validate_prediction
 from bridge.server import make_server
@@ -16,12 +20,16 @@ class FakeArm:
         self.state = 'ERROR'
         self.detail = 'not homed'
         self.connected = True
-        self.last_rejection = None
+        self._local = threading.local()
         self.commands = []
         self.listeners = []
 
     def on_state(self, listener):
         self.listeners.append(listener)
+
+    @property
+    def last_rejection(self):
+        return getattr(self._local, 'rejection', None)
 
     def emit(self, state, detail=None):
         self.state, self.detail = state, detail
@@ -30,14 +38,18 @@ class FakeArm:
 
     def home(self):
         if self.state == 'BUSY':
+            self._local.rejection = 'Arm is busy; wait before HOME.'
             return False
+        self._local.rejection = None
         self.emit('DONE', 'HOME')
         self.emit('READY')
         return True
 
     def sort(self, bin_name):
         if self.state != 'READY':
+            self._local.rejection = 'Arm is not READY; home it before sorting.'
             return False
+        self._local.rejection = None
         self.commands.append(bin_name)
         self.emit('BUSY')
         return True
@@ -96,6 +108,113 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(rows[0]['id'])
         self.assertTrue(rows[0]['completed_at'])
         self.assertEqual(self.bridge.counts['PLASTIC'], 1)
+
+    def test_manual_sort_needs_no_camera_or_vision_and_counts_only_once_on_done(self):
+        self.bridge.set_sorting(False)
+        self.bridge.camera_lost()
+        self.bridge.vision_ready = False
+        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        pending = dict(self.bridge.pending_sort)
+        self.assertTrue(pending['id'])
+        self.assertEqual(pending['label'], 'Manual')
+        self.assertTrue(self.bridge.awaiting_clear)
+        self.assertEqual(self.bridge.status, 'Manual sort to PAPER requested.')
+        self.assertEqual(self.bridge.counts['PAPER'], 0)
+        self.assertEqual(self.bridge.recent_sorts, [])
+        self.arm.emit('DONE', 'SORT METAL')
+        self.assertEqual(self.bridge.counts['PAPER'], 0)
+        self.arm.finish()
+        self.arm.emit('DONE', 'SORT PAPER')
+        state = self.bridge.snapshot()
+        self.assertEqual(state['counts']['PAPER'], 1)
+        self.assertEqual(len(state['recent_sorts']), 1)
+        self.assertEqual(state['recent_sorts'][0]['id'], pending['id'])
+        self.assertEqual(state['recent_sorts'][0]['label'], 'Manual')
+        self.assertEqual(state['recent_sorts'][0]['bin'], 'PAPER')
+        self.assertTrue(state['recent_sorts'][0]['completed_at'])
+        self.assertIsNone(self.bridge.pending_sort)
+
+    def test_rejected_manual_sort_keeps_the_running_sort_countable(self):
+        self.bridge.set_sorting(False)
+        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        running = dict(self.bridge.pending_sort)
+        self.assertFalse(self.bridge.manual_sort('METAL'))  # arm is BUSY with PAPER
+        self.assertEqual(self.bridge.pending_sort, running)
+        self.arm.finish()
+        state = self.bridge.snapshot()
+        self.assertEqual(state['counts']['PAPER'], 1)
+        self.assertEqual(state['counts']['METAL'], 0)
+        self.assertEqual([row['id'] for row in state['recent_sorts']], [running['id']])
+
+    def test_manual_sort_waits_until_the_finished_sort_is_counted(self):
+        # The real arm reports READY just before its DONE notification reaches the bridge.
+        self.bridge.set_sorting(False)
+        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        finished = dict(self.bridge.pending_sort)
+        self.arm.state = 'READY'  # DONE for PAPER is still queued on the arm's notifier
+        for second_bin in ('PAPER', 'METAL'):
+            with self.subTest(second_bin=second_bin):
+                self.assertFalse(self.bridge.manual_sort(second_bin))
+                self.assertEqual(self.bridge.rejection_reason(),
+                                 'The previous sort is still finishing; try again in a moment.')
+                self.assertEqual(self.bridge.pending_sort, finished)
+        self.assertEqual(self.arm.commands, ['PAPER'])
+        self.arm.emit('DONE', 'SORT PAPER')  # the queued notifications arrive
+        self.arm.emit('READY')
+        self.assertEqual(self.bridge.counts['PAPER'], 1)
+        self.assertIsNone(self.bridge.pending_sort)
+        self.assertTrue(self.bridge.manual_sort('METAL'))  # now accepted
+        self.assertEqual(self.bridge.counts['METAL'], 0)
+
+    def test_manual_sort_requires_automatic_sorting_to_be_paused(self):
+        with self.assertRaisesRegex(ValueError, 'Pause automatic sorting before a manual sort.'):
+            self.bridge.manual_sort('PAPER')
+        self.assertTrue(self.bridge.enabled)
+        self.assertIsNone(self.bridge.pending_sort)
+        self.assertEqual(self.arm.commands, [])
+
+    def test_manual_sort_rejection_keeps_arm_state_and_reason(self):
+        self.bridge.set_sorting(False)
+        for state in ('ERROR', 'BUSY', 'DONE'):
+            with self.subTest(state=state):
+                self.arm.emit(state, 'original detail')
+                self.assertFalse(self.bridge.manual_sort('METAL'))
+                self.assertEqual(self.arm.state, state)
+                self.assertEqual(self.arm.detail, 'original detail')
+                self.assertEqual(self.bridge.status, self.arm.last_rejection)
+                self.assertIsNone(self.bridge.pending_sort)
+        self.assertEqual(self.arm.commands, [])
+        self.assertEqual(sum(self.bridge.counts.values()), 0)
+        self.assertEqual(self.bridge.recent_sorts, [])
+
+    def test_manual_sort_rejects_unknown_non_string_and_unavailable_bins(self):
+        self.bridge.set_sorting(False)
+        self.bridge.allowed_bins = ('PAPER', 'PLASTIC')
+        for bin_name in ('COMPOST', 'paper', 'METAL', None, 1, [], {}):
+            with self.subTest(bin_name=bin_name), self.assertRaises(ValueError):
+                self.bridge.manual_sort(bin_name)
+        self.assertIsNone(self.bridge.pending_sort)
+        self.assertEqual(self.arm.commands, [])
+        self.assertEqual(self.bridge.snapshot()['bins'], ['PAPER', 'PLASTIC'])
+
+    def test_home_status_reports_acceptance_or_rejection(self):
+        self.assertTrue(self.bridge.home())
+        self.assertEqual(self.bridge.status, 'Homing. Sorting remains paused.')
+        self.assertFalse(self.bridge.enabled)
+        self.arm.emit('BUSY')
+        self.assertFalse(self.bridge.home())
+        self.assertEqual(self.bridge.status, self.arm.last_rejection)
+        self.assertEqual(self.arm.state, 'BUSY')
+
+    def test_manual_sort_and_home_rejection_have_plain_fallbacks(self):
+        self.bridge.set_sorting(False)
+        self.arm.sort = lambda bin_name: False
+        self.arm.home = lambda: False
+        self.assertFalse(self.bridge.manual_sort('PAPER'))
+        self.assertEqual(self.bridge.status, 'Arm rejected the manual sort.')
+        self.assertIsNone(self.bridge.pending_sort)
+        self.assertFalse(self.bridge.home())
+        self.assertEqual(self.bridge.status, 'Arm rejected HOME.')
 
     def test_replayed_empty_frame_cannot_rearm_item(self):
         self.assertTrue(self.result())
@@ -232,15 +351,81 @@ class HttpTests(unittest.TestCase):
         with self.request('/api/stop', {}) as response:
             self.assertEqual(json.load(response)['state']['arm_state'], 'ERROR')
         with self.request('/api/state') as response:
-            self.assertTrue(json.load(response)['simulation'])
+            state = json.load(response)
+            self.assertTrue(state['simulation'])
+            self.assertEqual(state['bins'], ['PAPER', 'PLASTIC', 'METAL', 'ORGANIC'])
         with self.assertRaises(HTTPError):
             self.request('/../bridge/core.py')
 
     def test_cross_origin_and_unexpected_host_rejected(self):
-        for headers in ({'Origin': 'https://other.example'}, {'Host': 'other.example'}):
+        for path in ('/api/home', '/api/sort'):
+            for headers in ({'Origin': 'https://other.example'}, {'Host': 'other.example'}):
+                with self.assertRaises(HTTPError) as error:
+                    self.request(path, {'bin': 'PAPER'}, headers)
+                self.assertEqual(error.exception.code, 403)
+
+    def test_manual_sort_accepts_without_camera_or_vision_and_returns_rejection_reason(self):
+        self.bridge.stop()
+        self.bridge.home()
+        self.bridge.vision_ready = False
+        self.bridge.frame = self.bridge.frame_at = None
+        try:
+            with self.request('/api/sort', {'bin': 'ORGANIC'}) as response:
+                self.assertEqual(response.status, 200)
+                result = json.load(response)
+            self.assertTrue(result['accepted'])
+            self.assertEqual(result['state']['arm_state'], 'BUSY')
+            self.assertEqual(result['state']['counts']['ORGANIC'], 0)
             with self.assertRaises(HTTPError) as error:
-                self.request('/api/home', {}, headers)
-            self.assertEqual(error.exception.code, 403)
+                self.request('/api/sort', {'bin': 'PAPER'})
+            self.assertEqual(error.exception.code, 409)
+            result = json.load(error.exception)
+            self.assertFalse(result['accepted'])
+            # Refused by the bridge before the arm is asked: the ORGANIC sort is still pending.
+            self.assertEqual(result['error'], 'The previous sort is still finishing; try again in a moment.')
+            self.assertEqual(result['state']['status'], result['error'])
+            self.assertEqual(result['state']['arm_state'], 'BUSY')
+            # The rejected PAPER request must not drop the ORGANIC sort that is still running.
+            self.assertEqual(self.bridge.pending_sort['bin'], 'ORGANIC')
+        finally:
+            self.bridge.stop()
+            self.bridge.vision_ready = True
+            self.bridge.camera_frame(self.source.capture())
+
+    def test_manual_sort_invalid_body_or_enabled_automatic_sorting_returns_400(self):
+        self.bridge.stop()
+        self.bridge.home()
+        for body in ({}, {'bin': None}, {'bin': 3}, {'bin': []}, {'bin': 'UNKNOWN'}, []):
+            with self.subTest(body=body), self.assertRaises(HTTPError) as error:
+                self.request('/api/sort', body)
+            self.assertEqual(error.exception.code, 400)
+            self.assertEqual(set(json.load(error.exception)), {'error'})
+        self.bridge.camera_frame(self.source.capture())
+        self.bridge.set_sorting(True)
+        try:
+            with self.assertRaises(HTTPError) as error:
+                self.request('/api/sort', {'bin': 'PAPER'})
+            self.assertEqual(error.exception.code, 400)
+            self.assertEqual(json.load(error.exception),
+                             {'error': 'Pause automatic sorting before a manual sort.'})
+        finally:
+            self.bridge.set_sorting(False)
+
+    def test_home_while_busy_returns_409_with_error(self):
+        self.bridge.stop()
+        self.bridge.home()
+        self.assertTrue(self.bridge.manual_sort('METAL'))
+        try:
+            with self.assertRaises(HTTPError) as error:
+                self.request('/api/home', {})
+            self.assertEqual(error.exception.code, 409)
+            result = json.load(error.exception)
+            self.assertFalse(result['accepted'])
+            self.assertEqual(result['error'], 'Arm is busy; wait before HOME.')
+            self.assertEqual(result['state']['status'], result['error'])
+            self.assertEqual(result['state']['arm_state'], 'BUSY')
+        finally:
+            self.bridge.stop()
 
     def test_mock_scenario_clears_pending_frame(self):
         with self.request('/api/mock', {'scenario': 'paper'}) as response:
@@ -249,6 +434,46 @@ class HttpTests(unittest.TestCase):
             self.request('/api/frame.jpg')
         self.assertEqual(error.exception.code, 503)
         self.bridge.camera_frame(self.source.capture())
+
+
+class StartupTests(unittest.TestCase):
+    def test_arm_startup_errors_close_initial_camera_and_give_next_step(self):
+        from arm import PosesError
+
+        for failure, next_step in ((PosesError('Poses not taught yet'), 'python -m arm.teach'),
+                                   (ValueError('Set ARM_PORT'), 'ARM_PORT'),
+                                   (OSError('Could not open serial port'), 'ARM_PORT'),
+                                   (RuntimeError('No calibration file'), 'lerobot-calibrate')):
+            with self.subTest(failure=failure):
+                stderr = io.StringIO()
+                with patch('sys.argv', ['bridge']), patch.dict('os.environ', {}, clear=True), \
+                        patch('bridge.__main__.GeminiPredictor'), \
+                        patch('bridge.__main__.Camera') as camera, \
+                        patch('arm.ArmController.from_config', side_effect=failure), \
+                        redirect_stderr(stderr), self.assertRaises(SystemExit) as error:
+                    bridge_main()
+                self.assertEqual(error.exception.code, 2)
+                camera.return_value.close.assert_called_once()
+                self.assertIn('Arm startup failed:', stderr.getvalue())
+                self.assertIn(next_step, stderr.getvalue())
+                self.assertEqual(len(stderr.getvalue().splitlines()), 1)
+
+    def test_server_bind_failure_stops_and_closes_resources(self):
+        stderr = io.StringIO()
+        arm = Mock(state='ERROR', connected=True)
+        with patch('sys.argv', ['bridge', '--mock']), patch.dict('os.environ', {}, clear=True), \
+                patch('arm.ArmController.from_config', return_value=arm), \
+                patch('bridge.__main__.CameraSourceManager') as camera, \
+                patch('bridge.__main__.make_server', side_effect=OSError('Address already in use')), \
+                redirect_stderr(stderr), self.assertRaises(SystemExit) as error:
+            bridge_main()
+        self.assertEqual(error.exception.code, 2)
+        arm.stop.assert_called_once()
+        arm.close.assert_called_once()
+        camera.return_value.close.assert_called_once()
+        self.assertIn('4173', stderr.getvalue())
+        self.assertIn('--port', stderr.getvalue())
+        self.assertEqual(len(stderr.getvalue().splitlines()), 1)
 
 
 class CameraHttpTests(unittest.TestCase):

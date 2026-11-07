@@ -243,6 +243,11 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
 
 /* Laptop bridge controls follow the dashboard's existing card layout. */
 .bridge-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.manual-sort-card { flex: 0 0 100%; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: white; }
+.manual-sort-card h3 { margin: 0; font-size: 13px; font-weight: 700; }
+.manual-sort-card p { margin: 7px 0 12px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.manual-sort-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.manual-sort-buttons .control-button:focus-visible { outline: 3px solid var(--coral); outline-offset: 2px; }
 .control-button, #mockScenario { min-height: 40px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; background: #fff; color: #263b2d; font: inherit; font-size: 12px; }
 .control-button { cursor: pointer; }
 .control-button:disabled { opacity: .5; cursor: not-allowed; }

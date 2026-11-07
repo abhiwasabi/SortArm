@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { BIN_KEYS, derivePrediction, formatCount, normalizeState } from './state.mjs';
 
 const source = (await readFile(new URL('./app.mjs', import.meta.url), 'utf8'))
-  .replace(/^import .*;\n/, '');
+  .replace(/^import .*;\r?\n/, '');
 const sample = { label: 'Plastic bottle', confidence: .94, bin: 'PLASTIC',
   connected: true, arm_state: 'BUSY',
   counts: { PAPER: 3, PLASTIC: 4, METAL: 2, ORGANIC: 1 } };
@@ -93,7 +93,7 @@ test('camera frames refresh between state polls without overlapping image reques
   assert.equal(h.requests.length, 1);
 });
 
-test('STOP ignores pre-POST state requests and unrecognized controller states', async () => {
+test('STOP ignores pre-POST requests and needs ERROR, not READY or DONE, for confirmation', async () => {
   const h = harness();
   await h.respond(0);
   const oldPoll = h.run('pollState()');
@@ -110,7 +110,131 @@ test('STOP ignores pre-POST state requests and unrecognized controller states', 
   const readyPoll = h.run('pollState()');
   await h.respond(4, { ...sample, arm_state: 'READY' });
   await readyPoll;
-  assert.match(h.element('notice').textContent, /Controller now reports READY/);
+  assert.match(h.element('notice').textContent, /Waiting for the arm controller/);
+  const donePoll = h.run('pollState()');
+  await h.respond(5, { ...sample, arm_state: 'DONE' });
+  await donePoll;
+  assert.match(h.element('notice').textContent, /Waiting for the arm controller/);
+  const stoppedPoll = h.run('pollState()');
+  await h.respond(6, { ...sample, arm_state: 'ERROR', arm_detail: 'stopped' });
+  await stoppedPoll;
+  assert.equal(h.element('notice').textContent,
+    'Arm stopped. Check it is clear, then press Home arm to recover.');
+});
+
+test('manual sort is enabled only with an online, connected, ready, paused bridge and no pending control', async () => {
+  const ready = { ...sample, arm_state: 'READY', sorting_enabled: false,
+    vision_ready: false, camera_source: 'off' };
+  const scenarios = [
+    { name: 'ready without camera or vision', state: ready, enabled: true },
+    { name: 'API offline', state: ready, setup: 'backendOnline = false', enabled: false },
+    { name: 'no bridge', state: { ...ready, sorting_enabled: undefined }, enabled: false },
+    { name: 'disconnected', state: { ...ready, connected: false }, enabled: false },
+    { name: 'busy', state: { ...ready, arm_state: 'BUSY' }, enabled: false },
+    { name: 'done', state: { ...ready, arm_state: 'DONE' }, enabled: false },
+    { name: 'error', state: { ...ready, arm_state: 'ERROR' }, enabled: false },
+    { name: 'unknown arm state', state: { ...ready, arm_state: 'invalid' }, enabled: false },
+    { name: 'automatic sorting', state: { ...ready, sorting_enabled: true }, enabled: false },
+    { name: 'control command pending', state: ready, setup: 'controlPending = true', enabled: false },
+    { name: 'STOP POST pending', state: ready, setup: 'stopPending = true', enabled: false },
+    { name: 'STOP confirmation pending', state: ready, setup: 'awaitingStopState = true', enabled: false }
+  ];
+  for (const scenario of scenarios) {
+    const h = harness();
+    await h.respond(0, scenario.state);
+    if (scenario.setup) h.run(scenario.setup + '; render()');
+    const buttons = h.element('manualSortButtons').children;
+    assert.equal(buttons.length, 4, scenario.name);
+    assert.equal(buttons.every(button => !button.disabled), scenario.enabled, scenario.name);
+    if (!scenario.enabled) {
+      await h.run('bridgeCommand("/api/sort", { bin: "PAPER" })');
+      assert.equal(h.requests.length, 1, scenario.name + ' must not send a command');
+    }
+  }
+});
+
+test('manual buttons follow state bins and post through the shared helper without changing counts', async () => {
+  const h = harness();
+  const ready = { ...sample, arm_state: 'READY', sorting_enabled: false,
+    camera_source: 'off', vision_ready: false, bins: ['METAL', 'PAPER'] };
+  await h.respond(0, ready);
+  const buttons = h.element('manualSortButtons').children;
+  assert.deepEqual(buttons.map(button => button.dataset.bin), ['METAL', 'PAPER']);
+  assert.equal(h.element('manualSortCard').hidden, false);
+  const command = buttons[1].listeners.click();
+  assert.equal(h.requests[1].url, '/api/sort');
+  assert.equal(h.requests[1].options.method, 'POST');
+  assert.deepEqual(JSON.parse(h.requests[1].options.body), { bin: 'PAPER' });
+  assert.ok(buttons.every(button => button.disabled));
+  assert.equal(h.element('homeButton').disabled, true);
+  assert.equal(h.element('sortingButton').disabled, true);
+  await h.respond(1, { accepted: true, state: { ...ready, arm_state: 'BUSY', arm_detail: 'SORT PAPER' } });
+  await command;
+  assert.equal(h.element('paperCount').textContent, String(sample.counts.PAPER));
+  assert.match(h.element('notice').textContent, /Manual sort requested for Paper bin/);
+  assert.equal(h.element('armDescription').textContent, 'Moving: SORT PAPER');
+  assert.equal(h.element('manualSortButtons').children[0], buttons[0]);
+});
+
+test('home, manual sort, and automatic sorting show the 409 response error and state', async () => {
+  for (const [path, body] of [['/api/home', {}], ['/api/sort', { bin: 'PAPER' }],
+    ['/api/sorting', { enabled: true }]]) {
+    const h = harness();
+    const ready = { ...sample, arm_state: 'READY', sorting_enabled: false };
+    await h.respond(0, ready);
+    const command = h.run(`bridgeCommand(${JSON.stringify(path)}, ${JSON.stringify(body)})`);
+    const error = path === '/api/sorting' ? 'Pause automatic sorting before a manual sort.' : 'Calibration has not been verified.';
+    h.requests[1].resolve({ ok: false, status: 409, json: async () => ({ accepted: false, error,
+      state: { ...ready, arm_state: 'ERROR', arm_detail: 'Calibration required.' } }) });
+    await command;
+    assert.equal(h.element('notice').textContent, error, path);
+    assert.equal(h.element('notice').dataset.tone, 'error', path);
+    assert.equal(h.element('armDescription').textContent, 'Calibration required. Press Home arm to recover.');
+  }
+});
+
+test('STOP uses an eight-second request timeout and blocks motion through confirmation', async () => {
+  const h = harness();
+  const ready = { ...sample, arm_state: 'READY', sorting_enabled: false };
+  await h.respond(0, ready);
+  h.element('cameraFrame').listeners.load();
+  const stop = h.run('requestStop()');
+  assert.ok([...h.timers.values()].some(timer => timer.ms === 8000));
+  for (const id of ['homeButton', 'sortingButton']) assert.equal(h.element(id).disabled, true);
+  assert.ok(h.element('manualSortButtons').children.every(button => button.disabled));
+  await h.respond(1);
+  await stop;
+  for (const id of ['homeButton', 'sortingButton']) assert.equal(h.element(id).disabled, true);
+  for (const command of ['bridgeCommand("/api/home")',
+    'bridgeCommand("/api/sorting", { enabled: true })',
+    'bridgeCommand("/api/sort", { bin: "PAPER" })']) await h.run(command);
+  assert.equal(h.requests.length, 2);
+  const poll = h.run('pollState()');
+  await h.respond(2, { ...ready, arm_state: 'ERROR', arm_detail: 'STOP requested' });
+  await poll;
+  assert.equal(h.element('homeButton').disabled, false);
+  assert.match(h.element('notice').textContent, /then press Home arm to recover/);
+});
+
+test('arm details remain visible while disconnected, moving, and in error', async () => {
+  for (const [state, expected] of [
+    [{ connected: false, arm_state: 'ERROR', arm_detail: 'connection lost: bus timed out' }, 'connection lost: bus timed out'],
+    [{ connected: true, arm_state: 'BUSY', arm_detail: 'SORT PLASTIC' }, 'Moving: SORT PLASTIC'],
+    [{ connected: true, arm_state: 'ERROR', arm_detail: 'Joint limit exceeded.' }, 'Joint limit exceeded. Press Home arm to recover.']
+  ]) {
+    const h = harness();
+    await h.respond(0, { ...sample, ...state });
+    assert.equal(h.element('armDescription').textContent, expected);
+  }
+});
+
+test('sample preview hides the manual sort card and cannot dispatch a manual sort', async () => {
+  const h = harness('?demo=1');
+  assert.equal(h.element('bridgeControls').hidden, true);
+  assert.equal(h.element('manualSortCard').hidden, true);
+  assert.ok(h.element('manualSortButtons').children.every(button => button.disabled));
+  await h.run('bridgeCommand("/api/sort", { bin: "PAPER" })');
+  assert.equal(h.requests.length, 0);
 });
 
 test('STOP warning deadline runs even while a state request is stalled', async () => {

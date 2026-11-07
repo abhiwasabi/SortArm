@@ -88,6 +88,8 @@ class Handler(SimpleHTTPRequestHandler):
                 accepted = self.bridge.stop()
             elif path == '/api/home':
                 accepted = self.bridge.home()
+            elif path == '/api/sort':
+                accepted = self.bridge.manual_sort(body.get('bin'))
             elif path == '/api/sorting':
                 self.bridge.set_sorting(body.get('enabled'))
                 accepted = True
@@ -107,8 +109,11 @@ class Handler(SimpleHTTPRequestHandler):
                 accepted = True
             else:
                 return self.send_json(404, {'error': 'Unknown endpoint'})
-            self.send_json(200 if accepted else 409,
-                           {'accepted': accepted, 'state': self.bridge.snapshot()})
+            result = {'accepted': accepted, 'state': self.bridge.snapshot()}
+            if not accepted and path in ('/api/home', '/api/sort'):
+                result['error'] = self.bridge.rejection_reason() or (
+                    'Arm rejected HOME.' if path == '/api/home' else 'Arm rejected the manual sort.')
+            self.send_json(200 if accepted else 409, result)
         except (ValueError, TypeError) as exc:
             self.send_json(400, {'error': str(exc)})
         except Exception:
