@@ -31,7 +31,7 @@ def _env_float(name: str, default: float) -> float:
 
 @dataclass
 class ArmConfig:
-    # Serial port of the Waveshare bus-servo board, e.g. "COM5" (Windows) or "/dev/ttyACM0".
+    # Serial port of the bus-servo board (Hiwonder BusLinker V3), e.g. "COM5" (Windows) or "/dev/ttyACM0".
     port: str | None = None
     # LeRobot robot id; the calibration file is <calibration_dir>/<robot_id>.json.
     robot_id: str = "sharkbyte_follower"

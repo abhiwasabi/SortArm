@@ -21,10 +21,10 @@ One-page map of the SharkByte 2026 robotic waste sorter, for teammates and their
  └─────────────────────────────────┬───────────────────────────────┘
                                    │ USB (LeRobot, Feetech protocol)
                                    ▼
-                   Waveshare bus-servo board ── servo power supply
+                   Hiwonder BusLinker V3 board ── 12 V servo supply
                                    │ daisy-chained 3-wire bus
                                    ▼
-        SO-101 follower arm: 6 × Feetech STS3215 (IDs 1–6) ──► item into bin
+        SO-101 follower arm: 6 × Waveshare ST3215-HS (IDs 1–6) ──► item into bin
 
  ESP32-S3 (#13, PROPOSED, pending agreement on #1): physical STOP button + status LED,
  sends "STOP\n" to the laptop over USB serial. It does not drive the servos.
@@ -105,8 +105,9 @@ arm.last_done            # (sequence number, "SORT RECYCLE") of the last complet
 ## Hardware
 
 - **Arm:** [SO-101 follower](https://github.com/TheRobotStudio/SO-ARM100), printed in PLA+. Joints and Feetech IDs: 1 `shoulder_pan`, 2 `shoulder_lift`, 3 `elbow_flex`, 4 `wrist_flex`, 5 `wrist_roll`, 6 `gripper`.
-- **Servos:** STS3215 (7.4 V version runs on the 5 V supply; the 12 V version needs a 12 V 5 A+ supply). Each servo's ID must be set **before assembly** with `lerobot-setup-motors`.
-- **Controller:** Waveshare bus-servo board → laptop over USB-C. Servo power comes from its own supply, not USB.
+- **Servos:** 6 × Waveshare **ST3215-HS** (20 kg·cm at 12 V, 106 rpm, 4096-step encoder, factory ID 1, 1 Mbps). This is the same size and protocol family as the STS3215 in the stock SO-101 parts list. They need a **12 V** supply: 5 A minimum, more is safer (2.4 A locked-rotor each). Each servo's ID must be set **before assembly** with `lerobot-setup-motors`. **Unverified:** whether LeRobot accepts their model number (it expects the STS3215's 777); the first one-servo test settles it.
+- **Controller:** **Hiwonder BusLinker V3** → laptop over USB (CH341 driver, default 1 Mbps, 5–14 V input). Communication jumper on the **Servo + USB** pins. Hiwonder lists it as LeRobot-compatible, but does not name Feetech/ST3215. **Unverified:** that it passes Feetech packets straight through, and that its 3-pin port order matches the servo cable. Fallback: a Waveshare bus-servo adapter, the board in the stock SO-101 parts list.
+- **Power cut:** the physical switch goes on the 12 V line into the BusLinker, so it cuts every servo at once.
 - **Software:** Python 3.12, [LeRobot](https://github.com/huggingface/lerobot) `0.7.0` (`lerobot[feetech]`), which handles the bus, calibration, PID settings, and the gripper torque limit (50%).
 
 ## Safety rules (all code)

@@ -63,7 +63,7 @@ def build(args: argparse.Namespace) -> ArmController:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m arm.cli", description=__doc__.splitlines()[0])
     parser.add_argument("--mock", action="store_true", help="simulate the arm (no hardware)")
-    parser.add_argument("--port", help="serial port of the Waveshare board (default: $ARM_PORT)")
+    parser.add_argument("--port", help="serial port of the bus-servo board (default: $ARM_PORT)")
     parser.add_argument("--speed", type=float, help="body joint speed in deg/s (default 20)")
     args = parser.parse_args(argv)
 

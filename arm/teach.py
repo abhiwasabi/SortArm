@@ -36,7 +36,7 @@ def fmt(reading: dict[str, float]) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m arm.teach", description="Record arm poses by hand.")
-    parser.add_argument("--port", help="serial port of the Waveshare board (default: $ARM_PORT)")
+    parser.add_argument("--port", help="serial port of the bus-servo board (default: $ARM_PORT)")
     parser.add_argument("--mock", action="store_true", help="simulated arm, for trying the commands")
     args = parser.parse_args(argv)
 

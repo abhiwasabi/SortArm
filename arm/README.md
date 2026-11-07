@@ -25,9 +25,23 @@ In the console, type `HOME`, then `SORT RECYCLE`, `SORT TRASH`, and `STOP`. The 
 
 ## Hardware setup
 
+Hardware: Waveshare ST3215-HS servos on a Hiwonder BusLinker V3 board with a 12 V supply. See ARCHITECTURE.md, Hardware, for what is still unverified.
+
+### 0. First test: one servo
+
+Before setting up all six, prove that the board and servo work with LeRobot:
+
+1. Install the **CH341** USB-serial driver (Hiwonder's download page).
+2. Put the BusLinker's communication jumper on the **Servo + USB** pins.
+3. **Check the connector pin order before plugging in a servo.** Power the board from 12 V, then use a multimeter on the 3-pin port to find which pin is GND and which is +12 V. Compare that with the ST3215-HS pinout (Waveshare wiki). The servo's +V must meet the board's +12 V, GND must meet GND, and the remaining pin carries signal. If they don't match, stop: 12 V on the signal pin can kill the servo.
+4. Power off, connect **one** servo, power on, then run steps 1 and 2 below for just the gripper prompt.
+   - `'gripper' motor id set to 6` means everything works.
+   - **Model-number mismatch**: LeRobot sees the servo but the HS reports a different model; note the number it prints and post it. `arm/` can be told to accept it.
+   - **Motor not found** at every baud rate: check the jumper, pin order, and power. If those are right, the BusLinker is not passing Feetech packets through; switch to a Waveshare bus-servo adapter.
+
 ### 1. Find the port
 
-Plug the Waveshare board into USB and its power supply, then run:
+Plug the bus-servo board into USB and its 12 V supply, then run:
 
 ```sh
 lerobot-find-port
@@ -41,7 +55,7 @@ $env:ARM_PORT = "COM5"        # PowerShell; bash: export ARM_PORT=COM5
 
 ### 2. Set servo IDs — before assembly
 
-Each STS3215 ships with the same ID, so every servo needs its own ID (1–6) **before it goes into the printed parts**. Connect one servo at a time when prompted:
+Each servo ships with the same ID (1), so every servo needs its own ID (1–6) **before it goes into the printed parts**. Connect one servo at a time when prompted:
 
 ```sh
 lerobot-setup-motors --robot.type=so101_follower --robot.port=COM5
@@ -94,7 +108,7 @@ Set these as environment variables; defaults are in `config.py`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `ARM_PORT` | — | Serial port of the Waveshare board |
+| `ARM_PORT` | — | Serial port of the bus-servo board |
 | `ARM_ID` | `sharkbyte_follower` | Calibration file name in `arm/calibration/` |
 | `ARM_SPEED_DEG_S` | `20` | Body joint speed |
 | `ARM_GRIPPER_SPEED` | `80` | Gripper speed (units of 0–100 per second) |

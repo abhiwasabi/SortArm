@@ -33,7 +33,7 @@ class CalibrationMissing(RuntimeError):
 
 
 class So101Backend:
-    """The real SO-101 follower arm on a Waveshare board, via LeRobot."""
+    """The real SO-101 follower arm on a USB bus-servo board, via LeRobot."""
 
     def __init__(self, config: ArmConfig):
         if not config.port:
