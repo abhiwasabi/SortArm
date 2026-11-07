@@ -1,4 +1,6 @@
-# SignSpeak MVP plan
+# SignSpeak draft concept
+
+This is a working concept for the fresh kickoff. Confirm the demo scope before creating new task issues.
 
 ## What we are building
 
@@ -46,9 +48,9 @@ Roles are intentionally blank until the team sets them.
 | @anaoliveira01 |  |  |
 | @yusufdirdis |  |  |
 
-Open work: [camera #3](https://github.com/abhiwasabi/sharkbyte-2026/issues/3), [recognition #4](https://github.com/abhiwasabi/sharkbyte-2026/issues/4), [sign-to-speech UI #5](https://github.com/abhiwasabi/sharkbyte-2026/issues/5), [integration #6](https://github.com/abhiwasabi/sharkbyte-2026/issues/6), [testing and submission #7](https://github.com/abhiwasabi/sharkbyte-2026/issues/7), [glasses power and audio #8](https://github.com/abhiwasabi/sharkbyte-2026/issues/8), and [speech-to-sign animation #9](https://github.com/abhiwasabi/sharkbyte-2026/issues/9). All issues remain unassigned until roles are chosen.
+The earlier task issues #2–#9 were closed as superseded. [Fresh kickoff #10](https://github.com/abhiwasabi/sharkbyte-2026/issues/10) is the only open planning issue. Create new implementation issues after the team confirms the demo and fills the role table.
 
-## Build order
+## Suggested build order
 
 1. Confirm the first supported concepts and the sign, transcript, and animation catalog.
 2. Test the camera view from the glasses frame before collecting model examples.
