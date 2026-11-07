@@ -52,7 +52,7 @@ const ui = {
 };
 
 const previewMode = new URLSearchParams(window.location.search).get("demo") === "1";
-const POLL_MS = 1200;
+const POLL_MS = 300;
 const FRAME_POLL_MS = 100;
 const RETRY_MS = 3000;
 const REQUEST_TIMEOUT_MS = 3000;

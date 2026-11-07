@@ -3,6 +3,7 @@ import argparse
 import os
 from pathlib import Path
 import threading
+import urllib.error
 
 from .adapters import Camera, GeminiPredictor, prediction_error_message
 from .camera_sources import CameraSourceManager, Esp32SnapshotSource, validate_esp32_url
@@ -63,18 +64,25 @@ def main():
             shutdown.wait(camera.capture_interval())
 
     def prediction_loop():
+        retry_delay = 1.5
         while not shutdown.is_set():
             ticket = bridge.begin_prediction()
+            delay = 0.5  # Keep new-item response quick without flooding the cloud API.
             if ticket:
                 try:
                     result = camera.predict(ticket)
                     if result is not None:
                         bridge.accept_prediction(ticket, result)
+                    retry_delay = 1.5
                 except Exception as exc:
                     message = prediction_error_message(exc)
                     print(message, flush=True)
-                    bridge.prediction_failed(ticket, message)
-            shutdown.wait(1.5)
+                    transient = (isinstance(exc, urllib.error.HTTPError) and exc.code in (500, 502, 503, 504)
+                                 or isinstance(exc, (ValueError, KeyError, IndexError)))
+                    bridge.prediction_failed(ticket, message, retryable=transient)
+                    delay = retry_delay
+                    retry_delay = min(retry_delay * 2, 30)
+            shutdown.wait(delay)
 
     def poll_loop():
         while not shutdown.wait(1):

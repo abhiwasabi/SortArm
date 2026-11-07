@@ -87,6 +87,26 @@ class Camera:
         self.camera.release()
 
 
+def recognition_frame(frame):
+    """Bound cloud upload size independently of the full-resolution live preview."""
+    if frame[1] != 'image/jpeg':
+        return frame
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return frame
+    image = cv2.imdecode(np.frombuffer(frame[0], dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        return frame
+    height, width = image.shape[:2]
+    scale = min(1.0, 512 / max(height, width))
+    if scale < 1:
+        image = cv2.resize(image, (round(width * scale), round(height * scale)), interpolation=cv2.INTER_AREA)
+    ok, encoded = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    return (encoded.tobytes(), 'image/jpeg') if ok else frame
+
+
 class GeminiPredictor:
     def __init__(self, key=None, model=None):
         self.key = key if key is not None else os.environ.get('GEMINI_API_KEY')
@@ -97,6 +117,7 @@ class GeminiPredictor:
             raise ValueError('GEMINI_MODEL must be a model ID')
 
     def predict(self, frame):
+        frame = recognition_frame(frame)
         schema = dict(type='OBJECT', properties={
             'label': dict(type='STRING', enum=['Plastic bottle', 'Paper sheet', 'Metal can', 'Banana peel', 'EMPTY', 'UNKNOWN']),
             'item_present': dict(type='BOOLEAN'),
@@ -114,6 +135,9 @@ class GeminiPredictor:
             generationConfig=dict(responseMimeType='application/json', responseSchema=schema, maxOutputTokens=512))
         if self.model.startswith('gemini-2.5-flash'):
             payload['generationConfig']['thinkingConfig'] = {'thinkingBudget': 0}
+        elif self.model.startswith(('gemini-3.5-flash-lite', 'gemini-3.1-flash-lite')):
+            payload['generationConfig']['thinkingConfig'] = {'thinkingLevel': 'MINIMAL'}
+            payload['generationConfig']['mediaResolution'] = 'MEDIA_RESOLUTION_LOW'
         request = urllib.request.Request(
             'https://generativelanguage.googleapis.com/v1beta/models/' + self.model + ':generateContent',
             data=json.dumps(payload).encode(),

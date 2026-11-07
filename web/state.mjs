@@ -102,15 +102,23 @@ export function derivePrediction(state, options = {}) {
       note: "Waiting for the first prediction." };
   }
   if (state.awaitingClear) {
-    const last = state.recentSorts?.[0];
-    return { kind: "completed", label: last?.label || "Item sorted", confidence: null, bin: null,
-      note: last ? `Sorted to ${last.bin.toLowerCase()}. Remove the item and leave the pickup area empty before showing the next item.`
-        : "Sort requested. Remove the item after the sort finishes, then show the next item." };
+    const fresh = state.predictionAt !== null && now - state.predictionAt <= staleAfterMs;
+    const known = fresh && !["UNKNOWN", "EMPTY"].includes(state.label.toUpperCase());
+    const continuous = state.simulation;
+    return { kind: "completed", label: known ? state.label :
+      continuous ? "Checking for a new item…" : "Checking pickup area…",
+      confidence: known ? state.confidence : null, bin: null,
+      note: continuous
+        ? known ? "This item was sorted. Show a different item to sort it next."
+          : "Waiting for a different item. The previous sort is saved in history."
+        : known ? "Latest camera result. The next sort needs an empty pickup area first."
+          : "Waiting for the pickup area to clear. The previous sort is saved in history." };
   }
   if (state.bridgeAvailable && state.predictionAt === null && state.label.toUpperCase() === "UNKNOWN") {
     return { kind: "waiting", label: state.sortingEnabled ? "Identifying item…" : "Recognition paused",
       confidence: null, bin: null,
       note: !state.visionReady ? "Connect Gemini in Settings to recognize items."
+        : state.status?.includes("Retrying automatically.") ? state.status
         : state.sortingEnabled ? "Waiting for Gemini. Keep one item clearly visible."
         : state.status || "Start sorting to request a classification." };
   }
