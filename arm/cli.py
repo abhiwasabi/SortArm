@@ -3,7 +3,8 @@
     python -m arm.cli --mock          # no hardware
     python -m arm.cli --port COM5     # real SO-101 (or set ARM_PORT)
 
-stdin:  HOME | SORT RECYCLE | SORT TRASH | STOP   (one per line; QUIT to exit)
+stdin:  HOME | SORT <BIN> | STOP                   (one per line; QUIT to exit)
+        BIN is PAPER, PLASTIC, METAL, or ORGANIC (arm/config.py BINS)
 stdout: READY | BUSY | DONE | ERROR               (one per state change; nothing else)
 stderr: human-readable notes, every line starting with "#", including why a command was rejected.
 

@@ -1,6 +1,6 @@
 # Arm control (SO-101)
 
-Laptop code that moves the SO-101 follower arm for the sorter demo (issue #20). It wraps [LeRobot](https://github.com/huggingface/lerobot) in the team's arm contract: `HOME`, `SORT RECYCLE`, `SORT TRASH`, `STOP` → `READY`, `BUSY`, `DONE`, `ERROR`. See [ARCHITECTURE.md](../ARCHITECTURE.md) for how it fits with vision, the bridge, and the dashboard.
+Laptop code that moves the SO-101 follower arm for the sorter demo (issue #20). It wraps [LeRobot](https://github.com/huggingface/lerobot) in the team's arm contract: `HOME`, `SORT <BIN>` (`PAPER`, `PLASTIC`, `METAL`, `ORGANIC`), `STOP` → `READY`, `BUSY`, `DONE`, `ERROR`. See [ARCHITECTURE.md](../ARCHITECTURE.md) for how it fits with vision, the bridge, and the dashboard.
 
 ## Install (once per laptop)
 
@@ -21,7 +21,7 @@ python -m pytest arm/tests
 python -m arm.cli --mock
 ```
 
-In the console, type `HOME`, then `SORT RECYCLE`, `SORT TRASH`, and `STOP`. The mock uses made-up poses until `poses.json` is taught.
+In the console, type `HOME`, then `SORT PAPER` (or `PLASTIC`, `METAL`, `ORGANIC`), and `STOP`. The mock uses made-up poses until `poses.json` is taught.
 
 ## Hardware setup
 
@@ -75,7 +75,7 @@ Follow the prompts. First put every joint in the middle of its range, then move 
 
 ### 4. Teach the poses
 
-Mark the pickup spot and both bins on the table first. Then:
+Mark the pickup spot and all four bins on the table first. Put the bins on an arc around the arm's base, all within reach, and keep the pickup spot clear of the overhead camera's view of the arm. Then:
 
 ```sh
 python -m arm.teach
@@ -88,8 +88,10 @@ Hold the arm when torque turns off. Move it by hand to each position and type th
 | `home` | Safe rest pose clear of the camera view. Ideally the arm rests stably here, since closing the programs turns torque off. |
 | `above_pick` | A few cm above the item at the pickup spot, jaws open |
 | `pick` | Jaws around the item |
-| `above_recycle` | Over the RECYCLE bin opening |
-| `above_trash` | Over the TRASH bin opening |
+| `above_paper` | Over the PAPER bin opening |
+| `above_plastic` | Over the PLASTIC bin opening |
+| `above_metal` | Over the METAL bin opening |
+| `above_organic` | Over the ORGANIC bin opening |
 | `open` / `closed` | Gripper opening: wide enough for the biggest item / fully closed |
 
 Type `list` to see what is missing and `t` to toggle torque. The poses are saved to `arm/poses.json`. Commit it with a note of what was tested.
@@ -100,7 +102,7 @@ Type `list` to see what is missing and `t` to toggle torque. The poses are saved
 python -m arm.cli --speed 15
 ```
 
-Keep a hand on the servo power switch. Run `HOME`, then `SORT RECYCLE` and `SORT TRASH` with no item, then with each demo item. Try `STOP` in the middle of a move. Raise the speed (default 20 °/s, or `ARM_SPEED_DEG_S`) only after the poses are clean. Record the results in the PR.
+Keep a hand on the servo power switch. Run `HOME`, then `SORT PAPER`, `SORT PLASTIC`, `SORT METAL`, and `SORT ORGANIC` with no item, then with each demo item. Try `STOP` in the middle of a move. Raise the speed (default 20 °/s, or `ARM_SPEED_DEG_S`) only after the poses are clean. Record the results in the PR.
 
 ## Settings
 

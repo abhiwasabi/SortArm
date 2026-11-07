@@ -17,10 +17,11 @@ from .backend import Backend, MockBackend, So101Backend
 from .config import BODY_JOINTS, GRIPPER, ArmConfig
 from .poses import GRIPPER_KEYS, REQUIRED_POSES, Poses, load, save
 
-HELP = """\
+HELP = f"""\
 Commands (type and press Enter):
   <Enter>            show the current joint readings
-  home | above_pick | pick | above_recycle | above_trash
+  {' | '.join(REQUIRED_POSES[:3])}
+  {' | '.join(REQUIRED_POSES[3:])}
                      save the arm's current position under that name
   open | closed      save the current gripper opening as the open / closed value
   list               show which poses are saved and which are missing

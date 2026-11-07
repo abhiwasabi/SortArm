@@ -3,8 +3,10 @@
     "home": null,
     "above_pick": null,
     "pick": null,
-    "above_recycle": null,
-    "above_trash": null
+    "above_paper": null,
+    "above_plastic": null,
+    "above_metal": null,
+    "above_organic": null
   },
   "gripper": {
     "open": null,
