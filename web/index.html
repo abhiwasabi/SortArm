@@ -1,200 +1,98 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#0b1114">
-    <meta name="description" content="Local control dashboard for the SharkByte robotic waste sorter.">
-    <title>Sort Arm · Control Dashboard</title>
-    <link rel="stylesheet" href="./styles.css">
-    <script type="module" src="./app.mjs"></script>
-  </head>
-  <body>
-    <div class="app-shell">
-      <header class="topbar">
-        <div class="brand" aria-label="Sort Arm dashboard">
-          <div class="brand-mark" aria-hidden="true">
-            <span></span><span></span><span></span>
-          </div>
-          <div class="brand-copy">
-            <strong>SORT ARM</strong>
-            <span>CONTROL DASHBOARD</span>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8f6">
+  <meta name="description" content="Local dashboard for the SharkByte robotic waste sorter.">
+  <title>Sort Arm · Sorting overview</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" aria-label="Dashboard navigation">
+    <a class="brand" href="#overview" aria-label="Sort Arm overview">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40" width="24" height="24" fill="none"><path d="M11 13h18M11 20h11M11 27h18" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/><circle cx="29" cy="20" r="3" fill="currentColor"/></svg></span>
+      <span class="brand-name">sortarm<span>.</span></span>
+    </a>
+    <div class="sidebar-middle">
+      <p class="nav-caption">YOUR WORKSPACE</p>
+      <nav class="side-nav" aria-label="Sections">
+        <a class="nav-link active" href="#overview" aria-current="location"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg><span>Overview</span></a>
+        <a class="nav-link" href="#camera"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="6" width="13" height="12" rx="2"/><path d="m16.5 10 4-2.5v9L16.5 14"/></svg><span>Camera</span></a>
+        <a class="nav-link" href="#arm"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 20h18M7 20v-4h8v4M9 16l-2-6 5-3 4 6-4 3M12 7l3-4 5 4-3 4"/></svg><span>Arm status</span></a>
+        <a class="nav-link" href="#bins"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M8 7V4h8v3M6 7l1 13h10l1-13M10 10v7M14 10v7"/></svg><span>Bin totals</span></a>
+      </nav>
+    </div>
+    <div class="sidebar-bottom"><span class="sidebar-bottom-icon" aria-hidden="true">S</span><div><strong>SharkByte 2026</strong><span>Local sorter prototype</span></div></div>
+  </aside>
+
+  <div class="page-shell">
+    <header class="topbar">
+      <div class="topbar-title"><strong>Sort Arm</strong><span>Overview dashboard</span></div>
+      <div class="topbar-right"><span id="modeBadge" class="mode-badge"><span class="badge-dot"></span>LIVE SYSTEM</span><span class="topbar-divider" aria-hidden="true"></span><span class="topbar-context">SharkByte 2026</span></div>
+    </header>
+    <main id="overview" class="content">
+      <p id="notice" class="notice" role="status" aria-live="polite" hidden></p>
+      <section class="overview-card" aria-labelledby="pageTitle">
+        <div class="overview-heading">
+          <div class="heading-copy"><span class="heading-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 12h3m2-5v10m3-13v16m3-11v6m3-10v14m3-9v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span><div><h1 id="pageTitle">Live sorting</h1><p>Follow the camera, bin decision, and robotic arm in one place.</p></div></div>
+          <button id="stopButton" class="stop-button" type="button" disabled><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/></svg><span>STOP ARM</span></button>
+        </div>
+        <div class="session-row" id="system">
+          <div class="session-copy"><span class="small-label">SYSTEM STATUS</span><strong id="sessionStatus">Connecting to system</strong><small id="lastUpdate">Waiting for first response</small></div>
+          <div class="health-strip" aria-label="System connections">
+            <div class="health-item" id="backendHealth" data-health="waiting"><span class="health-light" aria-hidden="true"></span><div><span>Dashboard API</span><strong id="backendStatus">Connecting</strong></div></div>
+            <div class="health-item" id="espHealth" data-health="waiting"><span class="health-light" aria-hidden="true"></span><div><span>ESP32 controller</span><strong id="espStatus">Waiting</strong></div></div>
+            <div class="health-item" id="cameraHealth" data-health="waiting"><span class="health-light" aria-hidden="true"></span><div><span>Pickup camera</span><strong id="cameraStatus">Waiting</strong></div></div>
           </div>
         </div>
-        <div class="topbar-right">
-          <span class="event-tag">SHARKBYTE 2026</span>
-          <span id="modeBadge" class="mode-badge"><span class="badge-dot"></span>LIVE SYSTEM</span>
-        </div>
-      </header>
-
-      <main>
-        <section class="page-heading" aria-labelledby="pageTitle">
-          <div>
-            <p class="eyebrow">VISION-GUIDED SORTING / LOCAL CONSOLE</p>
-            <h1 id="pageTitle">Robotic waste sorter</h1>
-            <p class="subtitle">See the item, verify the decision, and follow every move to the bin.</p>
-          </div>
-          <div class="session-meta">
-            <span class="meta-label">SESSION STATUS</span>
-            <strong id="sessionStatus">Connecting to system</strong>
-            <small id="lastUpdate">Waiting for first response</small>
-          </div>
-        </section>
-
-        <section class="health-strip" aria-label="System connections">
-          <div class="health-item" id="backendHealth" data-health="waiting">
-            <span class="health-icon" aria-hidden="true">01</span>
-            <div><span>Dashboard API</span><strong id="backendStatus">Connecting</strong></div>
-            <span class="health-light" aria-hidden="true"></span>
-          </div>
-          <div class="health-item" id="espHealth" data-health="waiting">
-            <span class="health-icon" aria-hidden="true">02</span>
-            <div><span>ESP32 controller</span><strong id="espStatus">Waiting</strong></div>
-            <span class="health-light" aria-hidden="true"></span>
-          </div>
-          <div class="health-item" id="cameraHealth" data-health="waiting">
-            <span class="health-icon" aria-hidden="true">03</span>
-            <div><span>Pickup camera</span><strong id="cameraStatus">Waiting</strong></div>
-            <span class="health-light" aria-hidden="true"></span>
-          </div>
-        </section>
-
-        <p id="notice" class="notice" role="status" aria-live="polite" hidden></p>
-
         <div class="workspace-grid">
-          <section class="panel camera-panel" aria-labelledby="cameraTitle">
-            <div class="panel-heading">
-              <div>
-                <span class="section-index">01 / CAMERA</span>
-                <h2 id="cameraTitle">Pickup zone</h2>
-              </div>
-              <span id="frameBadge" class="panel-badge">WAITING FOR FRAME</span>
-            </div>
+          <section class="inner-card camera-panel" id="camera" aria-labelledby="cameraTitle">
+            <div class="card-heading"><div><p class="small-label">CAMERA</p><h2 id="cameraTitle">Pickup area</h2></div><span id="frameBadge" class="soft-badge">WAITING FOR FRAME</span></div>
             <div class="camera-stage" id="cameraStage">
               <img id="cameraFrame" class="camera-frame" alt="Latest frame of the marked pickup area" hidden>
-              <div id="frameFallback" class="frame-fallback">
-                <svg viewBox="0 0 96 96" width="80" height="80" fill="none" aria-hidden="true">
-                  <rect x="9" y="20" width="78" height="56" rx="8" stroke="currentColor" stroke-width="2"/>
-                  <circle cx="48" cy="48" r="17" stroke="currentColor" stroke-width="2"/>
-                  <circle cx="48" cy="48" r="4" fill="currentColor"/>
-                  <path d="M24 20V14M72 20V14M24 82v-6M72 82v-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-                <strong>Waiting for camera feed</strong>
-                <span>The latest frame will appear here when the camera is available.</span>
-              </div>
-              <div class="viewfinder" aria-hidden="true">
-                <span class="corner top-left"></span><span class="corner top-right"></span>
-                <span class="corner bottom-left"></span><span class="corner bottom-right"></span>
-              </div>
-              <div class="camera-overlay">
-                <span><span class="mini-dot"></span> FIXED PICKUP AREA</span>
-                <span id="frameSource">NO FRAME</span>
-              </div>
+              <div id="frameFallback" class="frame-fallback"><span class="fallback-icon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><rect x="5" y="10" width="38" height="28" rx="5" stroke="currentColor" stroke-width="2"/><circle cx="24" cy="24" r="8" stroke="currentColor" stroke-width="2"/><circle cx="24" cy="24" r="2" fill="currentColor"/></svg></span><strong>Waiting for camera feed</strong><span>The latest frame will appear here when the camera is available.</span></div>
+              <div class="camera-overlay"><span>Fixed pickup area</span><span id="frameSource">NO FRAME</span></div>
             </div>
-            <div class="camera-footer">
-              <span>One item at a time in the marked area</span>
-              <span id="frameHint">Frame source: /api/frame.jpg</span>
-            </div>
+            <div class="camera-footer"><span>Place one item in the marked area</span><span id="frameHint">Frame source: /api/frame.jpg</span></div>
           </section>
-
           <div class="right-stack">
-            <section class="panel detection-panel" aria-labelledby="detectionTitle">
-              <div class="panel-heading">
-                <div>
-                  <span class="section-index">02 / VISION</span>
-                  <h2 id="detectionTitle">Latest prediction</h2>
-                </div>
-                <span id="detectionBadge" class="panel-badge" data-tone="neutral">NO DATA</span>
-              </div>
-              <div class="prediction-main">
-                <p class="field-label">IDENTIFIED ITEM</p>
-                <strong id="itemLabel" class="item-label">—</strong>
-                <p id="predictionNote" class="prediction-note">Waiting for a prediction from the laptop.</p>
-              </div>
-              <div class="confidence-block">
-                <div class="confidence-labels">
-                  <span>MODEL CONFIDENCE</span>
-                  <strong id="confidenceValue">—</strong>
-                </div>
-                <div class="confidence-track" role="meter" aria-label="Model confidence" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="confidenceMeter">
-                  <span id="confidenceFill"></span>
-                </div>
-              </div>
-              <div class="route-row">
-                <div class="route-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" width="22" height="22" fill="none"><path d="M4 12h15m-6-6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </div>
-                <div><span>BIN DECISION</span><strong id="binDecision">No route selected</strong></div>
-                <span id="binMarker" class="bin-marker" data-bin="none">—</span>
-              </div>
+            <section class="inner-card detection-panel" aria-labelledby="detectionTitle">
+              <div class="card-heading"><div><p class="small-label">VISION</p><h2 id="detectionTitle">Current item</h2></div><span id="detectionBadge" class="soft-badge" data-tone="neutral">NO DATA</span></div>
+              <div class="prediction-main"><span class="small-label">IDENTIFIED ITEM</span><strong id="itemLabel" class="item-label">—</strong><p id="predictionNote" class="prediction-note">Waiting for a prediction from the laptop.</p></div>
+              <div class="confidence-block"><div class="confidence-labels"><span>Model confidence</span><strong id="confidenceValue">—</strong></div><div class="confidence-track" role="meter" aria-label="Model confidence" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="confidenceMeter"><span id="confidenceFill"></span></div></div>
+              <div class="route-row"><span class="route-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 12h15m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><div><span class="small-label">BIN DECISION</span><strong id="binDecision">No route selected</strong></div><span id="binMarker" class="bin-marker" data-bin="none">—</span></div>
             </section>
-
-            <section class="panel arm-panel" aria-labelledby="armTitle">
-              <div class="panel-heading">
-                <div>
-                  <span class="section-index">03 / MOTION</span>
-                  <h2 id="armTitle">Robotic arm</h2>
-                </div>
-                <span id="armBadge" class="panel-badge" data-tone="neutral">UNKNOWN</span>
-              </div>
-              <div class="arm-content">
-                <div class="arm-state-wrap">
-                  <span class="arm-state-icon" aria-hidden="true">
-                    <svg viewBox="0 0 48 48" width="46" height="46" fill="none">
-                      <path d="M8 39h33M14 39v-7h15v7M19 32l-3-12 9-5 7 12-7 5M23 14l7-6 9 8-7 6" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
-                      <circle cx="16" cy="20" r="2.8" fill="currentColor"/><circle cx="32" cy="22" r="2.8" fill="currentColor"/>
-                    </svg>
-                  </span>
-                  <div>
-                    <span class="field-label">CONTROLLER STATE</span>
-                    <strong id="armState" class="arm-state" aria-live="polite">Waiting</strong>
-                    <p id="armDescription">Checking the ESP32 connection.</p>
-                  </div>
-                </div>
-                <div class="stop-row">
-                  <div>
-                    <strong>Stop motion</strong>
-                    <span>Sends STOP to the controller. Keep the physical power cutoff accessible.</span>
-                  </div>
-                  <button id="stopButton" class="stop-button" type="button" disabled>
-                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/></svg>
-                    <span>STOP ARM</span>
-                  </button>
-                </div>
-              </div>
+            <section class="inner-card arm-panel" id="arm" aria-labelledby="armTitle">
+              <div class="card-heading"><div><p class="small-label">MOTION</p><h2 id="armTitle">Robotic arm</h2></div><span id="armBadge" class="soft-badge" data-tone="neutral">UNKNOWN</span></div>
+              <div class="arm-state-wrap"><span class="arm-state-icon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M5 41h38M12 41v-7h15v7M18 34l-3-12 9-5 7 12-7 5M23 17l7-7 10 8-7 7" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15" cy="22" r="2.5" fill="currentColor"/><circle cx="33" cy="25" r="2.5" fill="currentColor"/></svg></span><div><span class="small-label">CONTROLLER STATE</span><strong id="armState" class="arm-state" aria-live="polite">Waiting</strong><p id="armDescription">Checking the ESP32 connection.</p></div></div>
+              <p class="safety-note">Keep the physical power cutoff within reach during the demo.</p>
             </section>
           </div>
         </div>
-
-        <section class="totals" aria-labelledby="totalsTitle">
-          <div class="totals-heading">
-            <div><span class="section-index">04 / COMPLETED SORTS</span><h2 id="totalsTitle">Bin totals</h2></div>
-            <span>Counts update after the arm reports DONE</span>
-          </div>
-          <div class="bin-grid">
-            <div class="bin-card recycle-card">
-              <span class="bin-symbol" aria-hidden="true">↻</span>
-              <div><span>RECYCLE BIN</span><strong id="recycleCount">—</strong></div>
-              <small>Completed drops</small>
-            </div>
-            <div class="bin-card trash-card">
-              <span class="bin-symbol" aria-hidden="true">▥</span>
-              <div><span>TRASH BIN</span><strong id="trashCount">—</strong></div>
-              <small>Completed drops</small>
-            </div>
-          </div>
-        </section>
-
-        <section id="demoPanel" class="demo-panel" aria-labelledby="demoTitle" hidden>
-          <div><span class="section-index">DEMO CONTROLS</span><h2 id="demoTitle">Preview system states</h2><p>Sample data only. These controls never move hardware.</p></div>
-          <div id="scenarioButtons" class="scenario-buttons" role="group" aria-label="Demo scenario"></div>
-        </section>
-      </main>
-
-      <footer class="footer">
-        <span>SHARKBYTE 2026 · CONTROLLED PROTOTYPE</span>
-        <span>Selected objects · fixed pickup area · two bins</span>
-      </footer>
-    </div>
-  </body>
+      </section>
+      <section class="totals" id="bins" aria-labelledby="totalsTitle"><div class="totals-heading"><p class="small-label">COMPLETED SORTS</p><h2 id="totalsTitle">Bin totals</h2><p>Counts update only after the arm reports a completed drop.</p></div><div class="bin-grid"><div class="bin-card recycle-card"><span class="bin-symbol" aria-hidden="true">↻</span><div><span>Recycle bin</span><strong id="recycleCount">—</strong><small>Completed drops</small></div></div><div class="bin-card trash-card"><span class="bin-symbol" aria-hidden="true">▥</span><div><span>Trash bin</span><strong id="trashCount">—</strong><small>Completed drops</small></div></div></div></section>
+      <section id="demoPanel" class="demo-panel" aria-labelledby="demoTitle" hidden><div><p class="small-label">DEMO CONTROLS</p><h2 id="demoTitle">Preview system states</h2><p>Sample data only. These controls never move hardware.</p></div><div id="scenarioButtons" class="scenario-buttons" role="group" aria-label="Demo scenario"></div></section>
+    </main>
+    <footer class="footer"><span>SharkByte 2026 · Robotic waste sorter</span><span>Selected objects · Fixed pickup area · Two bins</span></footer>
+  </div>
+</div>
+<script>
+  const navLinks = [...document.querySelectorAll(".nav-link")];
+  function updateNavigation() {
+    const activeHref = navLinks.some((link) => link.getAttribute("href") === location.hash)
+      ? location.hash : "#overview";
+    for (const link of navLinks) {
+      const active = link.getAttribute("href") === activeHref;
+      link.classList.toggle("active", active);
+      if (active) link.setAttribute("aria-current", "location");
+      else link.removeAttribute("aria-current");
+    }
+  }
+  addEventListener("hashchange", updateNavigation);
+  updateNavigation();
+</script>
+</body>
 </html>

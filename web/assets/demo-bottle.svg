@@ -1,38 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 650" role="img" aria-label="Illustrated sample camera frame with a bottle in the pickup zone">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 650" role="img" aria-label="Illustrated sample camera frame with a bottle in the pickup area">
   <defs>
-    <linearGradient id="tray" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#33494b"/>
-      <stop offset="1" stop-color="#192b2f"/>
+    <linearGradient id="surface" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#e9eee9"/>
+      <stop offset="1" stop-color="#dfe5df"/>
     </linearGradient>
-    <linearGradient id="bottle" x1="0" y1="0" x2="1" y2="1">
-      <stop stop-color="#c9e8db" stop-opacity=".92"/>
-      <stop offset=".52" stop-color="#759f98" stop-opacity=".78"/>
-      <stop offset="1" stop-color="#4c7975" stop-opacity=".9"/>
+    <linearGradient id="plastic" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#cfebdf" stop-opacity=".92"/>
+      <stop offset="1" stop-color="#92b7aa" stop-opacity=".88"/>
     </linearGradient>
-    <pattern id="grid" width="45" height="45" patternUnits="userSpaceOnUse">
-      <path d="M45 0H0V45" fill="none" stroke="#d5ebe0" stroke-opacity=".055"/>
-    </pattern>
-    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="21"/>
-    </filter>
+    <filter id="shadow"><feGaussianBlur stdDeviation="17"/></filter>
   </defs>
-  <rect width="1000" height="650" fill="#101d21"/>
-  <rect x="40" y="34" width="920" height="582" rx="28" fill="url(#tray)" stroke="#537073" stroke-opacity=".6" stroke-width="3"/>
-  <rect x="62" y="55" width="876" height="540" rx="17" fill="url(#grid)"/>
-  <path d="M280 90h440M280 560h440M100 210v230M900 210v230" stroke="#b6e2c1" stroke-opacity=".25" stroke-width="2" stroke-dasharray="10 13"/>
-  <ellipse cx="509" cy="351" rx="135" ry="214" fill="#02090b" opacity=".5" filter="url(#shadow)"/>
-  <g transform="rotate(-14 504 321)">
-    <rect x="438" y="118" width="132" height="398" rx="47" fill="url(#bottle)" stroke="#d7f4e6" stroke-opacity=".64" stroke-width="4"/>
-    <rect x="454" y="92" width="100" height="59" rx="16" fill="#9dc6b7" stroke="#d9f0dd" stroke-opacity=".6" stroke-width="3"/>
-    <rect x="450" y="75" width="108" height="32" rx="9" fill="#d0f16f" stroke="#e9f9bd" stroke-opacity=".75" stroke-width="3"/>
-    <rect x="452" y="229" width="104" height="155" rx="17" fill="#e9f6ef" fill-opacity=".74"/>
-    <path d="M466 149v73m0 170v85M542 148v72m0 172v84" stroke="#f4fff7" stroke-opacity=".5" stroke-width="7" stroke-linecap="round"/>
-    <path d="M465 310h78" stroke="#5b8c83" stroke-opacity=".64" stroke-width="5" stroke-linecap="round"/>
-    <path d="M467 326h61" stroke="#5b8c83" stroke-opacity=".45" stroke-width="3" stroke-linecap="round"/>
+  <rect width="1000" height="650" fill="#f2f4ef"/>
+  <rect x="34" y="28" width="932" height="594" rx="26" fill="url(#surface)" stroke="#ccd5cc" stroke-width="3"/>
+  <ellipse cx="504" cy="349" rx="120" ry="199" fill="#718375" opacity=".19" filter="url(#shadow)" transform="rotate(-13 504 349)"/>
+  <g transform="rotate(-13 504 326)">
+    <rect x="444" y="119" width="124" height="398" rx="50" fill="url(#plastic)" stroke="#84a89c" stroke-width="4"/>
+    <rect x="455" y="95" width="102" height="57" rx="13" fill="#c2ddcf" stroke="#8eb1a1" stroke-width="3"/>
+    <rect x="451" y="76" width="110" height="30" rx="8" fill="#dee9df" stroke="#a7b9a9" stroke-width="3"/>
+    <rect x="452" y="227" width="108" height="154" rx="17" fill="#fafbf6" stroke="#d1ded4" stroke-width="2"/>
+    <path d="M468 152v65m0 177v80M544 152v65m0 177v80" stroke="#f8fffa" stroke-opacity=".64" stroke-width="6" stroke-linecap="round"/>
+    <path d="M471 299h71M471 315h59" stroke="#a1b3a5" stroke-width="5" stroke-linecap="round"/>
   </g>
-  <g fill="#d5f56f" opacity=".75">
-    <circle cx="137" cy="98" r="4"/><circle cx="863" cy="98" r="4"/>
-    <circle cx="137" cy="552" r="4"/><circle cx="863" cy="552" r="4"/>
-  </g>
-  <text x="82" y="584" fill="#bdd7d0" opacity=".65" font-family="monospace" font-size="15" letter-spacing="3">SAMPLE CAMERA FRAME / BOTTLE</text>
 </svg>

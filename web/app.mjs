@@ -226,7 +226,7 @@ function selectDemoScenario(key) {
   lastResponseAt = backendOnline ? new Date() : null;
   if (cameraOnline) {
     const sampleFrame = new URL(
-      key === "trash" ? "./assets/demo-wrapper.svg" : "./assets/demo-bottle.svg",
+      key === "trash" ? "./assets/demo-wrapper.svg?v=2" : "./assets/demo-bottle.svg?v=2",
       document.baseURI
     ).href;
     if (ui.cameraFrame.src !== sampleFrame) ui.cameraFrame.src = sampleFrame;
