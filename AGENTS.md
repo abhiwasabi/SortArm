@@ -19,14 +19,14 @@ The pinned **Message Board** issue is for short coordination messages between pe
 
 ## Work ownership
 
-Roles and folder ownership are intentionally blank until the team agrees on assignments. Record the decision in this table, [PLAN.md](PLAN.md), and the issue assignees. For now, coordinate overlapping work on the board.
+The current ownership split is recorded here, in [PLAN.md](PLAN.md), and in the issue assignees. Areas describe responsibility; implementation folders may be created as work begins. Coordinate overlapping files and interface changes on the board.
 
 | Teammate | Role | Areas or folders |
 | --- | --- | --- |
-| @abhiwasabi |  |  |
-| @PaulPio |  |  |
-| @anaoliveira01 |  |  |
-| @yusufdirdis |  |  |
+| @abhiwasabi | Vision and app | YOLO prediction, item-to-bin rules, web dashboard |
+| @PaulPio | Arm mechanics | CAD/3D printing, gripper, bin layout |
+| @anaoliveira01 | Integration and testing | Laptop-to-ESP32 bridge, app state, end-to-end trials, submission prep |
+| @yusufdirdis | Electronics and firmware | Servo power/wiring, ESP32-S3 arm control, stop logic |
 
 ## Git workflow
 
