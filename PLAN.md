@@ -2,76 +2,73 @@
 
 ## What we are building
 
-A prototype that recognizes a small, selected set of ASL signs and turns a confirmed result into text and spoken audio. It is **selected-sign recognition to speech**, not full ASL translation or a replacement for a qualified interpreter.
+A two-mode prototype for a small, validated set of ASL signs and phrases:
 
-**Live demo:** a signer makes one supported sign in front of the camera → the app shows its proposed label and confidence → the signer confirms or edits the text → the laptop speaks the approved text.
+1. **Sign → Speech:** an outward-facing camera on a glasses frame sees a signer. The app proposes text, a person confirms or edits it, and a speaker says the approved phrase.
+2. **Speech → Sign:** a microphone captures speech. The app transcribes it, matches a supported phrase, and shows animated signing hands with a caption in the web app. Unsupported speech gets an explicit unsupported result.
+
+This is a selected-sign and selected-phrase prototype, not general ASL translation or a replacement for an interpreter. An ASL-knowledgeable person should review the supported signs and animations. Hand-only animation may omit facial and body information used in ASL.
 
 ## Minimum scope
 
-- Agree on 5–10 actual ASL signs with someone knowledgeable in ASL. Start with a smaller reliable set, then add more.
-- Show `UNKNOWN` rather than guessing when the model is uncertain.
-- Require a stable result across several frames. Never auto-speak an unconfirmed prediction.
-- Use the Freenove ESP32-WROVER camera to stream to a laptop. A laptop webcam is a clearly labeled fallback. The separate ESP32-S3 can show status if time permits.
-- The laptop handles recognition, the integration service, the web app, and speech playback.
-- Do not store live video by default. Collect training examples only with the signer's consent.
+- Start with 3–5 validated concepts that can be demonstrated in both directions.
+- Show UNKNOWN rather than guessing when sign recognition is uncertain. Require a stable result across a short frame window.
+- Never speak an unconfirmed prediction or invent an animation for an unsupported phrase.
+- Attach a camera to an existing glasses frame and test the view at normal conversation distance. No 3D printed mount is needed.
+- Use the available ESP32 camera if it works on the frame; document a camera fallback if it does not. The recognition and web app can run on a laptop or phone.
+- Use a speaker that can be heard in the demo. Its final location and connection are still to be chosen.
+- The servos are working and available for a later scope decision. The agreed Speech → Sign output is animated hands in the web app.
+- Do not store live video by default. Collect training examples only with consent.
 
 ## Architecture
 
-```text
-WROVER camera → laptop server → recognition.predict(frames)
-                                  ↓
-                      GET /api/prediction
-                                  ↓
-                    web app: preview + text
-                                  ↓
-                       signer confirms/edits
-                                  ↓
-                     browser text-to-speech
-```
+**Sign → Speech:** glasses camera → frame stream → recognition on the host → proposed text in web app → confirm or edit → speech through speaker.
+
+**Speech → Sign:** microphone → speech transcript → supported-phrase match → animated hands and caption in web app.
 
 ### Shared contract
 
-- `recognition.predict(frames)` accepts a short time window of frames and returns `{label, confidence}`. The recognizer may use one frame for static signs, but the interface must allow movement over time.
-- `label` is one of the agreed supported labels or `UNKNOWN`. `confidence` is a number from 0 to 1.
-- `GET /api/status` reports camera and model readiness plus `READY`, `UNCERTAIN`, or `ERROR` for the ESP32-S3 status device.
-- `GET /api/prediction` returns `{label, confidence, stable, timestamp}`, where `timestamp` is ISO 8601 and `stable` is a boolean.
-- The web app must show an error if the camera or server disconnects; it must not keep showing a stale prediction.
-- Post any contract change on the [Message Board](https://github.com/abhiwasabi/sharkbyte-2026/issues/1) before implementing it.
+- recognition.predict(frames) accepts a short time window and returns a sign ID and confidence. It may return UNKNOWN.
+- GET /api/status reports camera and model readiness.
+- GET /api/prediction returns {label, confidence, stable, timestamp}; timestamp uses ISO 8601.
+- A shared catalog maps supported IDs to spoken phrases, accepted transcript variants, animation assets, and validation status.
+- The app must show disconnect or uncertainty clearly and must not display a stale prediction as current.
+- Post interface changes on the [Message Board](https://github.com/abhiwasabi/sharkbyte-2026/issues/1).
 
-## Owners and GitHub issues
+## Team roles
 
-| Owner | Area | Issue |
+Roles are intentionally blank until the team sets them.
+
+| Teammate | Role | Issues |
 | --- | --- | --- |
-| @PaulPio | ESP32-WROVER camera firmware and stream (`firmware/camera/`) | [#3](https://github.com/abhiwasabi/sharkbyte-2026/issues/3) |
-| @yusufdirdis | ESP32-S3 status device and 3D printed camera rig (`firmware/status/`, `hardware/`) | [#8](https://github.com/abhiwasabi/sharkbyte-2026/issues/8) |
-| @abhiwasabi | Selected-sign recognition (`recognition/`) and web UI, confirmation, and speech (`web/`) | [#4](https://github.com/abhiwasabi/sharkbyte-2026/issues/4), [#5](https://github.com/abhiwasabi/sharkbyte-2026/issues/5) |
-| @anaoliveira01 | Server, API, integration (`server/`, `scripts/`, `docs/`) and testing, demo, submission coordination | [#6](https://github.com/abhiwasabi/sharkbyte-2026/issues/6), [#7](https://github.com/abhiwasabi/sharkbyte-2026/issues/7) |
+| @abhiwasabi |  |  |
+| @PaulPio |  |  |
+| @anaoliveira01 |  |  |
+| @yusufdirdis |  |  |
 
-These are the agreed assignments. Post any handoff or scope change on the Message Board and update this table, `AGENTS.md`, and the relevant issue.
+Open work: [camera #3](https://github.com/abhiwasabi/sharkbyte-2026/issues/3), [recognition #4](https://github.com/abhiwasabi/sharkbyte-2026/issues/4), [sign-to-speech UI #5](https://github.com/abhiwasabi/sharkbyte-2026/issues/5), [integration #6](https://github.com/abhiwasabi/sharkbyte-2026/issues/6), [testing and submission #7](https://github.com/abhiwasabi/sharkbyte-2026/issues/7), [glasses power and audio #8](https://github.com/abhiwasabi/sharkbyte-2026/issues/8), and [speech-to-sign animation #9](https://github.com/abhiwasabi/sharkbyte-2026/issues/9). All issues remain unassigned until roles are chosen.
 
 ## Build order
 
-1. Confirm the supported signs and the API contract. The UI and recognition owners can use mock frames/results immediately.
-2. Make one end-to-end path work with a single sign: camera → model → app → confirmation → speech.
-3. Add the remaining signs and handle `UNKNOWN`, disconnects, and repeated predictions.
-4. Test with someone whose examples were not used for training. Record correct, incorrect, and uncertain results.
-5. Rehearse the live demo under the actual lighting and network. Prepare a clearly labeled fallback clip and submit the project.
+1. Confirm the first supported concepts and the sign, transcript, and animation catalog.
+2. Test the camera view from the glasses frame before collecting model examples.
+3. Make one complete Sign → Speech path work, then one Speech → Sign phrase and animation.
+4. Add the remaining supported concepts and handle UNKNOWN, unsupported speech, and disconnects.
+5. Test with an unseen signer and rehearse both directions under actual lighting, power, audio, and network conditions.
 
 ## UI checklist
 
-- Camera preview and connection status
-- Large proposed text and confidence/uncertainty indicator
+- Clear mode switch between Sign → Speech and Speech → Sign
+- Camera preview, connection status, proposed text, and uncertainty display
 - Confirm & Speak, Edit, Retry, and Stop/Mute controls
-- Clear display of the approved phrase while it is spoken
-- Simple setup instructions and accessible contrast/readable text
+- Microphone control, transcript, supported-phrase feedback, animated hands, and caption
+- Readable controls and layout on the chosen demo screen
 
 ## Submission checklist
 
 - Runnable README with setup, hardware, and start commands
-- List of supported signs and observed test results
-- Short live demo script, screenshots, and video
+- Supported sign and phrase list with observed test results
+- Short demo script, screenshots, and video showing both modes
 - Architecture diagram and honest limitations
 - GitHub repository and Devpost submission
-- Check the event's actual sponsor challenge sheet before claiming track eligibility
-
-**Stretch goals only after the MVP works:** Azure Speech, a Base44 feedback dashboard, more signs, a physical Confirm/Speak or Mute button, or a better enclosure.
+- Check the event's current sponsor challenges before claiming track eligibility
