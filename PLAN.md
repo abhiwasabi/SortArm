@@ -33,7 +33,7 @@ WROVER camera → laptop server → recognition.predict(frames)
 
 - `recognition.predict(frames)` accepts a short time window of frames and returns `{label, confidence}`. The recognizer may use one frame for static signs, but the interface must allow movement over time.
 - `label` is one of the agreed supported labels or `UNKNOWN`. `confidence` is a number from 0 to 1.
-- `GET /api/status` reports camera and model readiness.
+- `GET /api/status` reports camera and model readiness plus `READY`, `UNCERTAIN`, or `ERROR` for the ESP32-S3 status device.
 - `GET /api/prediction` returns `{label, confidence, stable, timestamp}`, where `timestamp` is ISO 8601 and `stable` is a boolean.
 - The web app must show an error if the camera or server disconnects; it must not keep showing a stale prediction.
 - Post any contract change on the [Message Board](https://github.com/abhiwasabi/sharkbyte-2026/issues/1) before implementing it.
@@ -42,13 +42,12 @@ WROVER camera → laptop server → recognition.predict(frames)
 
 | Owner | Area | Issue |
 | --- | --- | --- |
-| @PaulPio | ESP32 camera stream and printed mount (`firmware/`, `hardware/`) | [#3](https://github.com/abhiwasabi/sharkbyte-2026/issues/3) |
-| @anaoliveira01 | Selected-sign model, labeled examples, uncertainty, evaluation (`recognition/`) | [#4](https://github.com/abhiwasabi/sharkbyte-2026/issues/4) |
-| @yusufdirdis | Web UI, confirmation/edit flow, speech playback (`web/`) | [#5](https://github.com/abhiwasabi/sharkbyte-2026/issues/5) |
-| @abhiwasabi | Server and integration (`server/`, `scripts/`, `docs/`) | [#6](https://github.com/abhiwasabi/sharkbyte-2026/issues/6) |
-| All, coordinated by @abhiwasabi | End-to-end test, demo, and submission | [#7](https://github.com/abhiwasabi/sharkbyte-2026/issues/7) |
+| @PaulPio | ESP32-WROVER camera firmware and stream (`firmware/camera/`) | [#3](https://github.com/abhiwasabi/sharkbyte-2026/issues/3) |
+| @yusufdirdis | ESP32-S3 status device and 3D printed camera rig (`firmware/status/`, `hardware/`) | [#8](https://github.com/abhiwasabi/sharkbyte-2026/issues/8) |
+| @abhiwasabi | Selected-sign recognition (`recognition/`) and web UI, confirmation, and speech (`web/`) | [#4](https://github.com/abhiwasabi/sharkbyte-2026/issues/4), [#5](https://github.com/abhiwasabi/sharkbyte-2026/issues/5) |
+| @anaoliveira01 | Server, API, integration (`server/`, `scripts/`, `docs/`) and testing, demo, submission coordination | [#6](https://github.com/abhiwasabi/sharkbyte-2026/issues/6), [#7](https://github.com/abhiwasabi/sharkbyte-2026/issues/7) |
 
-These are starting assignments. Swap areas at kickoff if another split matches the team's skills better; update `AGENTS.md` and the issue assignees when you do.
+These are the agreed assignments. Post any handoff or scope change on the Message Board and update this table, `AGENTS.md`, and the relevant issue.
 
 ## Build order
 
@@ -75,4 +74,4 @@ These are starting assignments. Swap areas at kickoff if another split matches t
 - GitHub repository and Devpost submission
 - Check the event's actual sponsor challenge sheet before claiming track eligibility
 
-**Stretch goals only after the MVP works:** Azure Speech, a Base44 feedback dashboard, an ESP32-S3 status display, more signs, or a better enclosure.
+**Stretch goals only after the MVP works:** Azure Speech, a Base44 feedback dashboard, more signs, a physical Confirm/Speak or Mute button, or a better enclosure.
