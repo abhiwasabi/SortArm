@@ -2,7 +2,7 @@
 
 ## Team
 
-- @abhiwasabi — Abhi, team lead
+- @abhiwasabi — teammate
 - @PaulPio — teammate
 - @anaoliveira01 — teammate
 - @yusufdirdis — teammate
@@ -19,20 +19,20 @@ The pinned **Message Board** issue is for short coordination messages between pe
 
 ## Work ownership
 
-The agreed SignSpeak assignments are below. Post handoffs or scope changes on the board. The team lead resolves overlapping assignments. Ask on the board before editing another person's area. Read [PLAN.md](PLAN.md) for the MVP and interface contract.
+Roles and folder ownership are intentionally blank until the team agrees on assignments. Record the decision in this table, [PLAN.md](PLAN.md), and the issue assignees. For now, coordinate overlapping work on the board.
 
-| Area or folder | Owner | Notes |
+| Teammate | Role | Areas or folders |
 | --- | --- | --- |
-| Camera stream and firmware | @PaulPio | `firmware/camera/` |
-| ESP32-S3 status device and 3D printed rig | @yusufdirdis | `firmware/status/`, `hardware/` |
-| Selected-sign recognition, web app, UI, text to speech | @abhiwasabi | `recognition/`, `web/` |
-| Integration, API, testing, demo and submission coordination | @anaoliveira01 | `server/`, `scripts/`, `docs/`, `PLAN.md` |
+| @abhiwasabi |  |  |
+| @PaulPio |  |  |
+| @anaoliveira01 |  |  |
+| @yusufdirdis |  |  |
 
 ## Git workflow
 
 1. Pick or file an issue for each task. Comment when you take it.
 2. Branch from current `main` using `<issue-number>-<short-name>`.
-3. Commit only your own files; stage explicit paths.
+3. Stage explicit paths for your issue and coordinate before editing overlapping files.
 4. Open a pull request referencing the task issue, and include `Closes #N` when the PR fully completes it.
 5. Rebase on current `main` before pushing. Never force-push a shared branch.
 6. Post on the board when a merge changes an interface, schema, environment variable, or another person's work.
