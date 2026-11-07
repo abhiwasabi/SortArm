@@ -57,6 +57,7 @@ export function normalizeState(raw) {
     : {};
 
   return {
+    classificationPending: raw.classification_pending === true,
     bridgeAvailable: typeof raw.sorting_enabled === "boolean",
     sortingEnabled: raw.sorting_enabled === true,
     simulation: raw.simulation === true,

@@ -44,6 +44,8 @@ class Bridge:
         self.prediction_max_age = prediction_max_age
         self.lock = threading.RLock()
         self.enabled = False
+        self.single_requested = False
+        self.single_pending = False
         self.epoch = 0
         self.awaiting_clear = False
         self.empty_samples = 0
@@ -72,6 +74,9 @@ class Bridge:
     def invalidate(self, message):
         # Caller holds lock. In-flight model results can no longer act.
         self.epoch += 1
+        if self.single_requested:
+            self.single_pending = False
+        self.single_requested = False
         self.prediction = None
         self.status = message
 
@@ -114,13 +119,31 @@ class Bridge:
         # Never wait for a worker callback while holding the bridge lock.
         return self.arm.stop()
 
+    def classify_once(self):
+        with self.lock:
+            if self.single_pending:
+                raise ValueError('A single classification is already pending')
+            if not self.fresh_frame():
+                raise ValueError('A current camera frame is required')
+            self.enabled = False
+            self.invalidate('Classifying one image. No arm movement will be requested.')
+            self.single_requested = True
+            self.single_pending = True
+
+    def finish_prediction(self, ticket):
+        with self.lock:
+            if len(ticket) > 4 and ticket[4]:
+                self.single_pending = False
+
     def begin_prediction(self):
         with self.lock:
-            if not self.enabled or self.arm.state != 'READY' or not self.arm.connected or not self.fresh_frame():
+            single = self.single_requested
+            if not self.fresh_frame() or (not single and (not self.enabled or self.arm.state != 'READY' or not self.arm.connected)):
                 return None
             age = self.clock() - self.frame_at
             timestamp = (datetime.now(timezone.utc) - timedelta(seconds=age)).isoformat()
-            return self.epoch, self.frame_at, timestamp, self.frame
+            self.single_requested = False
+            return self.epoch, self.frame_at, timestamp, self.frame, single
 
     def prediction_failed(self, ticket, reason=None):
         with self.lock:
@@ -130,11 +153,18 @@ class Bridge:
 
     def accept_prediction(self, ticket, raw):
         result = validate_prediction(raw)
-        epoch, captured_at, timestamp, _ = ticket
+        epoch, captured_at, timestamp, _ = ticket[:4]
+        single = len(ticket) > 4 and ticket[4]
         with self.lock:
             if epoch == self.epoch and self.clock() - captured_at > self.prediction_max_age:
                 self.enabled = False
                 self.invalidate('Classification arrived too late. Keep the item still and restart sorting.')
+                return False
+            if single:
+                if epoch != self.epoch or not self.fresh_frame():
+                    return False
+                self.prediction = dict(result, prediction_at=timestamp, captured_at=captured_at)
+                self.status = 'Single result: ' + result['label'] + ' / ' + (result['bin'] or 'review') + '. No motion requested.'
                 return False
             if (epoch != self.epoch or not self.enabled or not self.arm.connected
                     or self.arm.state != 'READY' or not self.fresh_frame()
@@ -181,6 +211,6 @@ class Bridge:
                         arm_state=getattr(self.arm.state, 'value', self.arm.state),
                         connected=self.arm.connected, counts=dict(self.counts),
                         recent_sorts=[dict(row) for row in self.recent_sorts],
-                        simulation=self.simulation, mock_camera=self.mock_camera, sorting_enabled=self.enabled,
+                        classification_pending=self.single_pending, simulation=self.simulation, mock_camera=self.mock_camera, sorting_enabled=self.enabled,
                         status=self.status, arm_detail=self.arm.detail,
                         awaiting_clear=self.awaiting_clear)

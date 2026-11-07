@@ -12,6 +12,7 @@ const ui = {
   runtimeMode: byId("runtimeMode"),
   bridgeControls: byId("bridgeControls"),
   bridgeStatus: byId("bridgeStatus"),
+  classifyButton: byId("classifyButton"),
   homeButton: byId("homeButton"),
   sortingButton: byId("sortingButton"),
   mockControls: byId("mockControls"),
@@ -215,6 +216,8 @@ function render() {
   ui.runtimeMode.hidden = !previewMode && !snapshot?.simulation;
   ui.runtimeMode.textContent = previewMode ? "SAMPLE PREVIEW" : "SIMULATED ARM";
   ui.mockControls.hidden = !bridgeAvailable || !snapshot?.mockCamera;
+  ui.classifyButton.disabled = controlPending || !bridgeAvailable || !cameraOnline || snapshot?.classificationPending;
+  ui.classifyButton.textContent = snapshot?.classificationPending ? "Classifying…" : "Classify once";
   ui.homeButton.disabled = controlPending || !bridgeAvailable || !snapshot?.connected || snapshot?.armState === "BUSY";
   ui.sortingButton.disabled = controlPending || !bridgeAvailable || (!snapshot?.sortingEnabled && (!snapshot?.connected || snapshot?.armState !== "READY" || !cameraOnline));
   ui.sortingButton.textContent = snapshot?.sortingEnabled ? "Pause sorting" : "Start sorting";
@@ -360,6 +363,7 @@ async function bridgeCommand(path, body = {}) {
   }
 }
 
+ui.classifyButton.addEventListener("click", () => bridgeCommand("/api/classify"));
 ui.homeButton.addEventListener("click", () => bridgeCommand("/api/home"));
 ui.sortingButton.addEventListener("click", () => bridgeCommand("/api/sorting", { enabled: !snapshot?.sortingEnabled }));
 ui.mockScenario.addEventListener("change", () => bridgeCommand("/api/mock", { scenario: ui.mockScenario.value }));

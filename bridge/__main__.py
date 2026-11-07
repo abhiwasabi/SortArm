@@ -57,6 +57,8 @@ def main():
                     message = prediction_error_message(exc)
                     print(message, flush=True)
                     bridge.prediction_failed(ticket, message)
+                finally:
+                    bridge.finish_prediction(ticket)
             shutdown.wait(1.5)
 
     def poll_loop():
