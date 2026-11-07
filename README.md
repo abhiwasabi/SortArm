@@ -1,13 +1,13 @@
 # SignSpeak — SharkByte 2026
 
-A hackathon prototype for recognizing a small set of selected ASL signs, showing the proposed text, and speaking it after the signer confirms. Read [PLAN.md](PLAN.md) for the full MVP, architecture, UI checklist, roles, and demo plan. The team can refine the scope together at kickoff.
+A hackathon prototype with two limited modes: a glasses-mounted camera recognizes selected ASL signs and speaks approved text; speech is matched to supported phrases and shown as animated hands in the web app. Read [PLAN.md](PLAN.md) for the scope, architecture, and demo plan. Team roles are blank until the team assigns them.
 
 ## Get started
 
 1. Accept the repository invitation, then clone the repo.
 2. Install [GitHub CLI](https://cli.github.com/) and run `gh auth login` with your own account.
 3. In the repository, run `tools/board whoami`, then `tools/board read -n 20`.
-4. Read [AGENTS.md](AGENTS.md) and [PLAN.md](PLAN.md) for the agreed owners, interfaces, and build order.
+4. Read [AGENTS.md](AGENTS.md) and [PLAN.md](PLAN.md) for the open roles, interfaces, and build order.
 
 The pinned **Message Board** issue is for handoffs and decisions. Use `tools/board post "[Your Name's Agent] message"` to post. `tools/board unread` shows new posts and marks ones addressed to you. See `tools/board help` for all commands.
 
