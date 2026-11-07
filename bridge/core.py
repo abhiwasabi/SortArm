@@ -42,6 +42,7 @@ class Bridge:
         self.simulation = simulation
         self.continuous_sorting = simulation
         self.auto_sort_armed = simulation
+        self.home_confirmed = False
         self.mock_camera = mock_camera
         self.mock_available = mock_camera if mock_available is None else mock_available
         self.camera_source = camera_source or ('mock' if mock_camera else 'usb')
@@ -53,7 +54,7 @@ class Bridge:
         self.max_age = max_age
         self.prediction_max_age = prediction_max_age
         self.lock = threading.RLock()
-        self.enabled = simulation and vision_ready
+        self.enabled = False
         self.epoch = 0
         self.awaiting_clear = False
         self.empty_samples = 0
@@ -83,6 +84,7 @@ class Bridge:
                 self.pending_sort = None
                 self.enabled = False
                 self.auto_sort_armed = False
+                self.home_confirmed = False
                 self.invalidate('Arm needs attention: ' + str(detail))
 
     def invalidate(self, message):
@@ -98,7 +100,7 @@ class Bridge:
             self.frame = frame
             self.frame_at = self.clock()
             if self.camera_error is not None and self.status == self.camera_error:
-                self.enabled = self.auto_sort_armed and self.vision_ready
+                self.enabled = self.auto_sort_armed and self.home_confirmed and self.vision_ready
                 self.status = ('Camera feed restored. Automatic sorting ready.' if self.enabled
                                else 'Camera feed restored. Sorting remains paused.')
             self.camera_error = None
@@ -132,7 +134,7 @@ class Bridge:
 
     def set_camera_source(self, name, url=None, *, index=0, vision_ready=True):
         with self.lock:
-            self.enabled = self.auto_sort_armed and vision_ready and name != 'off'
+            self.enabled = self.auto_sort_armed and self.home_confirmed and vision_ready and name != 'off'
             self.camera_source = name
             self.camera_url = url
             self.camera_index = index
@@ -156,6 +158,8 @@ class Bridge:
                 raise ValueError('enabled must be boolean')
             if enabled and self.camera_switching:
                 raise ValueError('Camera source is changing; wait for a current frame')
+            if enabled and not self.home_confirmed:
+                raise ValueError('Home the arm before sorting')
             if enabled and not self.vision_ready:
                 raise ValueError('Gemini is not configured for this camera source; set GEMINI_API_KEY and GEMINI_MODEL')
             if enabled and set(self.allowed_bins) != set(BINS):
@@ -169,17 +173,27 @@ class Bridge:
 
     def home(self):
         with self.lock:
+            self.enabled = False
+            self.invalidate('Homing requested. Sorting remains paused.')
+            accepted = self.arm.home()
+            if not accepted:
+                self.home_confirmed = False
+                self.auto_sort_armed = False
+                self.status = self.arm.last_rejection or 'Arm rejected HOME.'
+                return False
+            self.home_confirmed = True
             if self.continuous_sorting:
                 self.auto_sort_armed = True
             self.enabled = self.auto_sort_armed and self.vision_ready and self.camera_source != 'off'
-            self.invalidate('Homing requested. Automatic sorting will start when ready.' if self.enabled
-                            else 'Homing requested. Sorting remains paused.')
-            return self.arm.home()
+            self.status = ('Homing requested. Automatic sorting will start when ready.' if self.enabled
+                           else 'Homing requested. Sorting remains paused.')
+            return True
 
     def stop(self):
         with self.lock:
             self.enabled = False
             self.auto_sort_armed = False
+            self.home_confirmed = False
             self.invalidate('STOP requested. Home the arm before resuming.')
         # Never wait for a worker callback while holding the bridge lock.
         return self.arm.stop()

@@ -69,6 +69,25 @@ class BridgeTests(unittest.TestCase):
         self.bridge.camera_frame((b'frame', 'image/jpeg'))
         return self.bridge.accept_prediction(self.bridge.begin_prediction(), raw or prediction())
 
+    def test_ready_simulated_arm_does_not_sort_before_home(self):
+        arm = FakeArm()
+        arm.state = 'READY'
+        bridge = Bridge(arm, simulation=True, clock=lambda: self.now)
+        bridge.camera_frame((b'frame', 'image/jpeg'))
+        self.assertFalse(bridge.enabled)
+        self.assertIsNone(bridge.begin_prediction())
+        self.assertTrue(bridge.home())
+        self.assertTrue(bridge.enabled)
+
+    def test_rejected_home_leaves_automatic_sorting_paused(self):
+        self.arm.emit('BUSY', 'SORT PLASTIC')
+        self.arm.last_rejection = 'Arm is busy'
+        self.assertFalse(self.bridge.home())
+        self.assertFalse(self.bridge.enabled)
+        self.assertFalse(self.bridge.auto_sort_armed)
+        self.assertFalse(self.bridge.home_confirmed)
+        self.assertEqual(self.bridge.status, 'Arm is busy')
+
     def test_one_sort_per_item_and_only_done_increments(self):
         self.assertTrue(self.bridge.enabled)
         self.assertTrue(self.result())
@@ -422,7 +441,7 @@ class CameraSwitchRaceTests(unittest.TestCase):
 
         manager.source = BlockingSource()
         bridge.camera_frame((b'old frame', 'image/jpeg'))
-        arm.home()
+        bridge.home()
         bridge.set_sorting(True)
         original_prepare = bridge.prepare_camera_switch
         original_set = bridge.set_camera_source

@@ -63,7 +63,8 @@ def connect_gemini(manager, body):
     with manager.bridge.lock:
         manager.predictor = predictor
         manager.bridge.vision_ready = True
-        manager.bridge.enabled = manager.bridge.auto_sort_armed and manager.name != 'off'
+        manager.bridge.enabled = (manager.bridge.auto_sort_armed and manager.bridge.home_confirmed
+                                  and manager.name != 'off')
         manager.bridge.last_evaluated_frame = None
         manager.bridge.invalidate('Gemini connected. Automatic sorting ready.' if manager.bridge.enabled
                                   else 'Gemini connected. Sorting remains paused.')
