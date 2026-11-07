@@ -122,6 +122,21 @@ test('STOP ignores pre-POST requests and needs ERROR, not READY or DONE, for con
     'Arm stopped. Check it is clear, then press Home arm to recover.');
 });
 
+test('STOP on an unresponsive arm keeps the power-cutoff warning instead of reporting success', async () => {
+  const h = harness();
+  await h.respond(0);
+  const stop = h.run('requestStop()');
+  await h.respond(1);
+  await stop;
+  const poll = h.run('pollState()');
+  await h.respond(2, { ...sample, connected: true, arm_state: 'ERROR', arm_detail: 'stopped; arm not responding' });
+  await poll;
+  const notice = h.element('notice').textContent;
+  assert.match(notice, /not responding/);
+  assert.match(notice, /physical power cutoff/);
+  assert.doesNotMatch(notice, /Arm stopped/);
+});
+
 test('manual sort is enabled only with an online, connected, ready, paused bridge and no pending control', async () => {
   const ready = { ...sample, arm_state: 'READY', sorting_enabled: false,
     vision_ready: false, camera_source: 'off' };
@@ -220,7 +235,9 @@ test('arm details remain visible while disconnected, moving, and in error', asyn
   for (const [state, expected] of [
     [{ connected: false, arm_state: 'ERROR', arm_detail: 'connection lost: bus timed out' }, 'connection lost: bus timed out'],
     [{ connected: true, arm_state: 'BUSY', arm_detail: 'SORT PLASTIC' }, 'Moving: SORT PLASTIC'],
-    [{ connected: true, arm_state: 'ERROR', arm_detail: 'Joint limit exceeded.' }, 'Joint limit exceeded. Press Home arm to recover.']
+    [{ connected: true, arm_state: 'ERROR', arm_detail: 'Joint limit exceeded.' }, 'Joint limit exceeded. Press Home arm to recover.'],
+    [{ connected: true, arm_state: 'ERROR', arm_detail: 'stopped; arm not responding' },
+      'stopped; arm not responding. Use the physical power cutoff if it is still moving.']
   ]) {
     const h = harness();
     await h.respond(0, { ...sample, ...state });
