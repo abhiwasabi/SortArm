@@ -10,7 +10,7 @@ From the repository root, run:
 python3 -m http.server 4173 --directory web
 ```
 
-Open `http://localhost:4173/?demo=1`. This shows a fixed sample bottle and counts so the layout can be reviewed before the backend is running. The system status says **Previewing sample data**. The Stop button does not contact hardware or the API in this preview.
+Open `http://localhost:4173/?demo=1`. This shows a fixed sample bottle and counts so the layout can be reviewed before the backend is running. The line under **Live sorting** identifies the sample preview. The Stop button does not contact hardware or the API in this preview.
 
 ## Use with the laptop backend
 

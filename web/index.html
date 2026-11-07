@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f7f8f6">
   <meta name="description" content="Local dashboard for the robotic waste sorter.">
-  <title>Sort Arm · dashboard</title>
+  <title>Sort Arm · Dashboard</title>
   <link rel="stylesheet" href="./styles.css">
   <script type="module" src="./app.mjs"></script>
 </head>
 <body>
 <div class="app-shell">
   <aside class="sidebar" aria-label="Dashboard navigation">
-    <a class="sidebar-brand" href="#overview" aria-label="Sort Arm dashboard">
+    <a class="sidebar-brand" href="#overview" aria-label="Sort Arm Dashboard">
       <span class="logo-mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><rect x="20" y="6" width="8" height="9" rx="2" fill="#fff"/><path d="M24 16v8m0 0-12 7m12-7 12 7" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="31" width="15" height="10" rx="3" fill="#dfeee0"/><rect x="27" y="31" width="15" height="10" rx="3" fill="#ec8a72"/></svg></span>
       <span class="logo-wordmark">sortarm<span>.</span></span>
     </a>
@@ -30,7 +30,7 @@
 
   <div class="page-shell">
     <header class="topbar">
-      <div class="topbar-title"><strong>Sort Arm</strong><span>dashboard</span></div>
+      <div class="topbar-title"><strong>Sort Arm</strong><span>Dashboard</span></div>
       <div class="topbar-actions">
         <button id="stopButton" class="stop-button" type="button" disabled><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/></svg><span>STOP ARM</span></button>
       </div>
@@ -42,9 +42,8 @@
       <div id="overview" class="overview-view">
         <section class="overview-card" aria-labelledby="pageTitle">
           <div class="overview-heading">
-            <div class="heading-copy"><h1 id="pageTitle">Live sorting</h1><p>Follow the camera, bin decision, and robotic arm in one place.</p></div>
+            <div class="heading-copy"><h1 id="pageTitle">Live sorting</h1><p id="overviewSubtitle">Follow the camera, bin decision, and robotic arm in one place.</p></div>
           </div>
-          <div class="session-row"><span class="small-label">SYSTEM STATUS</span><strong id="sessionStatus">Connecting to system</strong><small id="lastUpdate">Waiting for first response</small></div>
 
           <div class="workspace-grid">
             <section class="inner-card camera-panel" id="camera" aria-labelledby="cameraTitle">

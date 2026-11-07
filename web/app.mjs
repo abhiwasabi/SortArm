@@ -2,8 +2,7 @@ import { derivePrediction, formatCount, normalizeState } from "./state.mjs";
 
 const byId = (id) => document.getElementById(id);
 const ui = {
-  sessionStatus: byId("sessionStatus"),
-  lastUpdate: byId("lastUpdate"),
+  overviewSubtitle: byId("overviewSubtitle"),
   backendHealth: byId("backendHealth"),
   backendStatus: byId("backendStatus"),
   armHealth: byId("armHealth"),
@@ -38,7 +37,6 @@ let snapshot = null;
 let backendOnline = false;
 let cameraOnline = false;
 let lastFrameAt = null;
-let lastResponseAt = null;
 let stopPending = false;
 let awaitingStopState = false;
 let stopRequestedAt = null;
@@ -116,16 +114,9 @@ function render() {
     cameraOnline ? "Connected" : "Disconnected");
   showFrame(backendOnline && cameraOnline);
 
-  if (previewMode) {
-    ui.sessionStatus.textContent = "Previewing sample data";
-    ui.lastUpdate.textContent = "No hardware commands are sent";
-  } else if (!backendOnline) {
-    ui.sessionStatus.textContent = "System offline";
-    ui.lastUpdate.textContent = "Waiting for a connection";
-  } else {
-    ui.sessionStatus.textContent = snapshot?.connected ? "System connected" : "Arm controller disconnected";
-    ui.lastUpdate.textContent = "Last API response " + lastResponseAt.toLocaleTimeString();
-  }
+  ui.overviewSubtitle.textContent = previewMode
+    ? "Sample preview. No camera or arm hardware is connected."
+    : "Follow the camera, bin decision, and robotic arm in one place.";
 
   const prediction = derivePrediction(snapshot, {
     backendOnline,
@@ -163,7 +154,6 @@ function setupPreview() {
   backendOnline = true;
   cameraOnline = true;
   snapshot = normalizeState(sample);
-  lastResponseAt = new Date();
   ui.cameraFrame.addEventListener("error", () => {
     cameraOnline = false;
     render();
@@ -188,7 +178,6 @@ async function pollState() {
     if (!response.ok) throw new Error("State request failed: " + response.status);
     snapshot = normalizeState(await response.json());
     backendOnline = true;
-    lastResponseAt = new Date();
     if (awaitingStopState && requestSequence >= stopMinimumSequence) {
       if (!snapshot.connected) {
         setNotice("Arm controller disconnected before STOP was confirmed. Use the physical power cutoff if needed.", "error");
