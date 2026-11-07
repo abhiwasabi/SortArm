@@ -76,6 +76,24 @@
         <section class="totals" id="bins" aria-labelledby="totalsTitle"><div class="totals-heading"><p class="small-label">COMPLETED SORTS</p><h2 id="totalsTitle">Bin totals</h2><p>Counts update only after the arm reports a completed drop.</p></div><div class="bin-grid"><div class="bin-card recycle-card"><span class="bin-symbol" aria-hidden="true">↻</span><div><span>Recycle bin</span><strong id="recycleCount">—</strong><small>Completed drops</small></div></div><div class="bin-card trash-card"><span class="bin-symbol" aria-hidden="true">▥</span><div><span>Trash bin</span><strong id="trashCount">—</strong><small>Completed drops</small></div></div></div></section>
       </div>
 
+      <section id="cameraView" class="detail-view" aria-labelledby="cameraViewTitle" hidden>
+        <div class="detail-heading"><p class="small-label">CAMERA</p><h1 id="cameraViewTitle">Camera</h1><p>See the fixed pickup area and its connection status.</p></div>
+        <p class="preview-detail-note" hidden>Sample camera image. No camera hardware is connected.</p>
+        <div class="detail-surface"><div id="cameraMount" class="detail-mount"></div></div>
+      </section>
+
+      <section id="armView" class="detail-view" aria-labelledby="armViewTitle" hidden>
+        <div class="detail-heading"><p class="small-label">MOTION</p><h1 id="armViewTitle">Arm status</h1><p>See the controller state and motion guidance.</p></div>
+        <p class="preview-detail-note" hidden>Sample arm state. No arm hardware is connected.</p>
+        <div class="detail-surface"><div id="armMount" class="detail-mount"></div></div>
+      </section>
+
+      <section id="binsView" class="detail-view" aria-labelledby="binsViewTitle" hidden>
+        <div class="detail-heading"><p class="small-label">COMPLETED SORTS</p><h1 id="binsViewTitle">Bin totals</h1><p>Track confirmed drops into each bin.</p></div>
+        <p class="preview-detail-note" hidden>Sample counts. No physical drops have been recorded.</p>
+        <div class="detail-surface"><div id="binsMount" class="detail-mount"></div></div>
+      </section>
+
       <section id="settings" class="settings-view" aria-labelledby="settingsTitle" hidden>
         <div class="settings-heading"><p class="small-label">SYSTEM</p><h1 id="settingsTitle">Settings</h1><p>Connection details for the local sorting system.</p></div>
         <p id="previewSettingsNote" class="preview-settings-note" hidden>Sample preview only. No arm hardware is connected.</p>
@@ -91,19 +109,42 @@
   const navLinks = [...document.querySelectorAll(".nav-link")];
   const overviewView = document.getElementById("overview");
   const settingsView = document.getElementById("settings");
+  const detailViews = {
+    camera: document.getElementById("cameraView"),
+    arm: document.getElementById("armView"),
+    bins: document.getElementById("binsView")
+  };
+  const components = {
+    camera: document.getElementById("camera"),
+    arm: document.getElementById("arm"),
+    bins: document.getElementById("bins")
+  };
+  const originalPlaces = Object.fromEntries(Object.entries(components).map(([name, node]) => [
+    name, { parent: node.parentNode, next: node.nextSibling }
+  ]));
+  const preview = new URLSearchParams(location.search).get("demo") === "1";
+  for (const note of document.querySelectorAll(".preview-detail-note")) note.hidden = !preview;
+
   function updateNavigation() {
     const activeHref = navLinks.some((link) => link.getAttribute("href") === location.hash)
       ? location.hash : "#overview";
-    const showSettings = activeHref === "#settings";
-    overviewView.hidden = showSettings;
-    settingsView.hidden = !showSettings;
+    const page = activeHref.slice(1);
+    for (const [name, node] of Object.entries(components)) {
+      const place = originalPlaces[name];
+      place.parent.insertBefore(node, place.next);
+    }
+    overviewView.hidden = page !== "overview";
+    settingsView.hidden = page !== "settings";
+    for (const [name, view] of Object.entries(detailViews)) view.hidden = page !== name;
+    if (detailViews[page]) document.getElementById(page + "Mount").append(components[page]);
     for (const link of navLinks) {
       const active = link.getAttribute("href") === activeHref;
       link.classList.toggle("active", active);
       if (active) link.setAttribute("aria-current", "location");
       else link.removeAttribute("aria-current");
     }
-    if (location.hash) requestAnimationFrame(() => document.getElementById(activeHref.slice(1))?.scrollIntoView());
+    const visiblePage = detailViews[page] ?? (page === "settings" ? settingsView : overviewView);
+    if (location.hash) requestAnimationFrame(() => visiblePage.scrollIntoView());
   }
   addEventListener("hashchange", updateNavigation);
   updateNavigation();

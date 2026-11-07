@@ -24,7 +24,7 @@ body { margin: 0; background: var(--page); color: var(--text); font-family: var(
 button { font: inherit; }
 button:focus-visible, a:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
 [hidden] { display: none !important; }
-#overview, #camera, #arm, #bins, #settings { scroll-margin-top: 118px; }
+#overview, #camera, #arm, #bins, #settings, #cameraView, #armView, #binsView { scroll-margin-top: 118px; }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 244px minmax(0, 1fr); }
 .sidebar { min-height: 100vh; height: 100vh; position: sticky; top: 0; display: flex; flex-direction: column; background: var(--sidebar); border-right: 1px solid #ecefec; padding: 29px 18px 20px; }
@@ -128,6 +128,24 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
 .bin-card strong { font-size: 32px; font-weight: 720; line-height: 1; letter-spacing: -.04em; }
 .bin-card small { color: var(--subtle); font-size: 10px; }
 
+.detail-heading { margin: 3px 0 22px; }
+.detail-heading .small-label { margin-bottom: 8px; }
+.detail-heading h1 { font-size: 30px; }
+.detail-heading p:last-child { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
+.preview-detail-note { margin: 0 0 16px; padding: 12px 15px; border-radius: 13px; background: var(--amber-bg); color: var(--amber); font-size: 12px; }
+.detail-surface { min-width: 0; padding: 25px; border-radius: 31px; background: var(--surface); }
+.detail-mount > .inner-card { padding: 26px; }
+.detail-view .camera-stage { min-height: 430px; aspect-ratio: 1.7; }
+.detail-view .arm-state-icon { width: 68px; height: 68px; }
+.detail-view .arm-state-icon svg { width: 44px; height: 44px; }
+.detail-view .arm-state { font-size: 26px; }
+.detail-view .arm-state-wrap p { font-size: 13px; }
+.detail-view .safety-note { margin-top: 30px; font-size: 12px; }
+.detail-view .totals { margin: 0; padding: 0; border-radius: 0; background: transparent; }
+.detail-view .totals-heading .small-label, .detail-view .totals-heading h2 { display: none; }
+.detail-view .bin-card { min-height: 165px; }
+.detail-view .bin-card strong { font-size: 42px; }
+
 .settings-heading { margin: 3px 0 22px; }
 .settings-heading .small-label { margin-bottom: 8px; }
 .settings-heading h1 { font-size: 30px; }
@@ -165,13 +183,14 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
   .logo-mark { width: 36px; height: 36px; }
   .logo-wordmark { font-size: 19px; }
   .content { padding: 16px 14px 30px; }
-  .overview-card, .totals, .settings-card { border-radius: 23px; }
+  .overview-card, .totals, .settings-card, .detail-surface { border-radius: 23px; }
   .overview-card { padding: 16px; }
   .overview-heading { flex-wrap: wrap; }
   .inner-card { padding: 16px; }
   .right-stack { grid-template-columns: 1fr; }
   .camera-stage { min-height: 265px; }
-  .totals, .settings-card { padding: 20px 16px; }
+  .totals, .settings-card, .detail-surface { padding: 20px 16px; }
+  .detail-mount > .inner-card { padding: 16px; }
 }
 @media (max-width: 520px) {
   .camera-stage { aspect-ratio: 1.25; min-height: 245px; }

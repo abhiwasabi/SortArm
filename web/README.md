@@ -42,6 +42,8 @@ If the camera endpoint fails or no new frame loads for several seconds, the dash
 
 The dashboard never increments counts itself. The backend should update counts only after the arm controller reports DONE. For live use, open the backend's dashboard URL without `?demo=1`; serving this folder on a separate port will show the API as offline unless the backend also serves the API on that origin. The Settings view shows the API and arm connection status, while the camera connection status appears below Pickup area.
 
+Overview shows the camera, arm status, and bin totals together. Their sidebar links open focused views of the same live components; returning to Overview restores them to the combined layout.
+
 ## Dashboard checks
 
 Run `node --test web/*.test.mjs` and `node --check web/app.mjs`. The app tests simulate delayed frame loads, in-flight state requests during STOP, unknown controller states, and the STOP confirmation deadline.
