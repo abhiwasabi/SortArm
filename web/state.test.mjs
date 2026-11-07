@@ -123,3 +123,10 @@ test("history rejects invalid and duplicate events and keeps the newest 20", () 
   assert.equal(history.at(-1).id, "sort-5");
   assert.equal(new Set(history.map(row => row.id)).size, 20);
 });
+
+test("a supported classifier decision can be displayed without fabricating confidence", () => {
+  const state = normalizeState({ ...sample, confidence: null });
+  const display = derivePrediction(state, { backendOnline: true, now: state.predictionAt });
+  assert.equal(display.bin, "PLASTIC");
+  assert.equal(display.confidence, null);
+});

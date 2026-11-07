@@ -57,6 +57,12 @@ export function normalizeState(raw) {
     : {};
 
   return {
+    bridgeAvailable: typeof raw.sorting_enabled === "boolean",
+    sortingEnabled: raw.sorting_enabled === true,
+    simulation: raw.simulation === true,
+    mockCamera: raw.mock_camera === true,
+    status: typeof raw.status === "string" ? raw.status : "",
+    armDetail: typeof raw.arm_detail === "string" ? raw.arm_detail : "",
     label,
     confidence,
     bin,

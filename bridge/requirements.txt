@@ -1,0 +1,2 @@
+# Only needed for live camera capture; full --mock uses the standard library.
+opencv-python>=4.10,<5
