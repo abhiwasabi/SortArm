@@ -64,6 +64,7 @@ class Bridge:
         self.awaiting_clear = False
         self.empty_samples = 0
         self.last_sorted_signature = None
+        self.manual_item_in_view = False
         self.last_evaluated_frame = None
         self.counts = dict.fromkeys(BINS, 0)
         self.prediction = None
@@ -256,6 +257,10 @@ class Bridge:
             if not accepted:
                 self.pending_sort, self.awaiting_clear = previous_sort, previous_clear
                 self.status = self.arm.last_rejection or 'Arm rejected the manual sort.'
+            elif self.continuous_sorting:
+                # Sorting is paused, so the item just sorted by hand was never classified. Treat the
+                # next item seen after Start as that item, so it is not sorted (and counted) twice.
+                self.manual_item_in_view = True
             return accepted
 
     def stop(self):
@@ -310,6 +315,7 @@ class Bridge:
                 if self.empty_samples >= 2:
                     self.awaiting_clear = False
                     self.last_sorted_signature = None
+                    self.manual_item_in_view = False
                 self.status = 'Pickup area empty.'
                 return False
             self.empty_samples = 0
@@ -319,6 +325,9 @@ class Bridge:
                 self.status = 'Item needs review; no motion requested.'
                 return False
             signature = (result['label'].casefold(), result['bin'])
+            if self.continuous_sorting and self.manual_item_in_view:
+                self.manual_item_in_view = False
+                self.last_sorted_signature = signature
             if self.continuous_sorting and signature == self.last_sorted_signature:
                 self.awaiting_clear = True
                 self.status = 'Already sorted this item. Show a different item.'

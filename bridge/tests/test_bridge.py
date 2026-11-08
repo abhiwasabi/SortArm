@@ -226,6 +226,33 @@ class BridgeTests(unittest.TestCase):
         self.assertIsNone(self.bridge.pending_sort)
         self.assertEqual(self.arm.commands, [])
 
+    def test_item_sorted_by_hand_is_not_sorted_again_after_start(self):
+        # Simulated continuous mode: Pause, manual sort, Start. Classification was paused during the
+        # manual sort, so the item still in view must not be sorted (and counted) a second time.
+        self.bridge.set_sorting(False)
+        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        self.arm.finish()
+        self.bridge.set_sorting(True)
+        self.assertFalse(self.result())
+        self.assertEqual(self.bridge.status, 'Already sorted this item. Show a different item.')
+        self.assertFalse(self.result())
+        self.assertEqual(self.arm.commands, ['PAPER'])
+        self.assertEqual((self.bridge.counts['PAPER'], self.bridge.counts['PLASTIC']), (1, 0))
+        self.assertTrue(self.result(prediction(label='Metal can', bin='METAL')))
+        self.arm.finish()
+        self.assertEqual(self.arm.commands, ['PAPER', 'METAL'])
+
+    def test_empty_area_after_manual_sort_lets_the_next_item_sort(self):
+        self.bridge.set_sorting(False)
+        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        self.arm.finish()
+        self.bridge.set_sorting(True)
+        empty = prediction(label='EMPTY', bin=None, item_present=False)
+        self.result(empty)
+        self.result(empty)
+        self.assertTrue(self.result())
+        self.assertEqual(self.arm.commands, ['PAPER', 'PLASTIC'])
+
     def test_manual_sort_rejection_keeps_arm_state_and_reason(self):
         self.bridge.set_sorting(False)
         for state in ('ERROR', 'BUSY', 'DONE'):
