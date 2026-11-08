@@ -6,6 +6,16 @@ Serves the existing dashboard and `/api/*` on one local origin. Camera capture, 
 
 The merged `arm/` package provides the controller and its mock. Run from the repository root. Python 3.12 is the team's target for LeRobot; the mock controller requires Python 3.11 or newer. Full mock mode needs neither a Gemini key nor camera access unless you select a real camera in Settings.
 
+For a laptop or iPhone camera, create one virtual environment and install the live-camera dependencies into it before starting the bridge:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r bridge/requirements.txt
+.venv/bin/python -m bridge --mock
+```
+
+On macOS, the requirements include PyObjC so the camera list can find Continuity Camera. Open **Settings**, choose **iPhone camera**, click **Refresh cameras** if needed, then **Use this camera**. If the phone is absent, connect it to the Mac, accept **Trust**, enable Continuity Camera, lock the phone, and refresh. The phone must also be available to macOS when the bridge opens it; another app using the camera can prevent capture. Use the same `.venv/bin/python` for installation and every bridge launch.
+
 ## Full simulation
 
 ```sh
@@ -25,7 +35,7 @@ The header always labels the simulated arm. Sample images are illustrations; the
 ## Gemini and a real camera, simulated arm
 
 ```sh
-python3 -m pip install -r bridge/requirements.txt
+.venv/bin/python -m pip install -r bridge/requirements.txt
 export GEMINI_API_KEY='your-key'
 export GEMINI_MODEL='your-supported-image-model-id'
 .venv/bin/python -m bridge --mock-arm --camera 0
@@ -50,7 +60,7 @@ The adapter boundary is `predict(frame) -> {label, item_present, needs_review, b
 ## Physical arm (bench validation required)
 
 ```sh
-python3 -m pip install -r arm/requirements.txt
+.venv/bin/python -m pip install -r arm/requirements.txt
 export ARM_PORT='/your/verified/usb-port'
 .venv/bin/python -m bridge --camera 0
 ```
