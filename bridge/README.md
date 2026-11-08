@@ -65,7 +65,7 @@ To preview ESP32 frames before Gemini is configured, start `python3 -m bridge --
 
 The ESP32 URL must use plain HTTP with a private or loopback IP address and return one JPEG per request. Redirects, credentials in the URL, invalid images, and oversized responses are rejected. Keep the dashboard bound to `127.0.0.1`.
 
-Demo policy: Gemini names one prominent object and bins it by dominant material. Paper and cardboard → PAPER; plastic bottles, bags, wrappers, and snack bags such as a Cracker Jack bag → PLASTIC; cans, trays, and foil → METAL; food scraps, peels, and cores → ORGANIC. Glass, mixed materials, more than one item, or an unclear view → review and no movement. This is a material sort, not a claim about local recycling rules. Coordinate policy/predictor changes with Abhi (#14). Gemini does not provide a calibrated detector probability here, so confidence remains null and the dashboard shows an em dash while displaying the validated bin.
+Demo policy on this trial branch (issue #66): Gemini names one prominent object and chooses `RECYCLE` or `TRASH`. Clean paper, cardboard, plastic packaging, and metal cans or foil go to RECYCLE. Food scraps, peels, and ordinary non-packaging waste go to TRASH. A container is sorted as the container, not the food inside it. Glass, electronics, mixed materials, more than one item, or an unclear view → review and no movement. The four-bin contract stays on `main`. Gemini does not provide a calibrated detector probability here, so confidence remains null and the dashboard shows an em dash while displaying the validated bin.
 
 The adapter boundary is `predict(frame) -> {label, item_present, needs_review, bin, confidence?}`. `frame` contains bytes and MIME type. The bridge timestamps the source frame and discards stale or invalidated results. In simulated-arm mode, a different bin can sort as soon as the arm is ready, even if the prior item was not cleared. The same bin is not sorted again until two distinct empty frames are classified, even when Gemini rewords the object. Physical-arm mode retains the empty-area latch. Simulated-arm mode retries temporary Gemini 5xx and incomplete-response errors with increasing delay; authentication, quota, and other cloud failures pause sorting. STOP remains latched until HOME. False class changes can still trigger an unwanted simulated sort, so physical behavior remains gated pending trials.
 
@@ -97,7 +97,7 @@ export TIGER_DATABASE_URL='postgres://...'                   # your Tiger Cloud 
 
 Real-arm startup needs all of the following:
 
-- Taught `home`, `above_pick`, `pick`, and `above_paper`, `above_plastic`, `above_metal`, `above_organic` poses, plus open/closed gripper settings. Teach them with `python -m arm.teach`.
+- Taught `home`, `above_pick`, `pick`, and `above_recycle`, `above_trash` poses, plus open/closed gripper settings. Teach them with `python -m arm.teach`. See `docs/ARM_SETUP.md`.
 - A matching LeRobot calibration file for the configured arm ID; run `lerobot-calibrate` first.
 - `ARM_PORT` set to the verified serial port.
 - Both `GEMINI_API_KEY` and `GEMINI_MODEL` in the environment.
@@ -114,14 +114,14 @@ Arm setup errors print a next step and exit with status 2. If the dashboard port
 | `GET /api/frame.jpg` | Latest fresh frame, or 503; live JPEG / mock SVG |
 | `POST /api/stop` | Pause, invalidate pending results, call `arm.stop()` |
 | `POST /api/home` | Pause, invalidate pending results, request operator HOME; 409 if rejected |
-| `POST /api/sort` | JSON `{"bin":"PAPER"}`; manually sort to an allowed bin while automatic sorting is paused; no camera or vision required |
+| `POST /api/sort` | JSON `{"bin":"RECYCLE"}`; manually sort to an allowed bin while automatic sorting is paused; no camera or vision required |
 | `POST /api/sorting` | JSON `{"enabled": true}` or false; start requires READY/connected/fresh camera |
 | `POST /api/mock` | Full simulation only: `{"scenario":"empty"}`; bottle, paper, metal, organic, unknown, camera-offline also supported |
 | `POST /api/camera` | Select `mock`, `usb`, or `esp32` camera source; pauses sorting and clears the old decision |
 
 The server binds only to 127.0.0.1, serves static files only from `web/`, and rejects foreign hosts/origins for commands. The default port is for local operation; use the separate authenticated public port below for remote access. Pause allows a current move to finish; STOP interrupts it. HOME completion never increments bin counts. Completion callbacks run on the controller notifier thread and update bridge state briefly under a lock; STOP waits outside that lock.
 
-`POST /api/sort` returns 200 with `{"accepted":true,"state":...}` when accepted. Rejected manual SORT and HOME requests return 409 with `{"accepted":false,"error":"<reason>","state":...}`: the arm's reason, or, for SORT, "The previous sort is still finishing; try again in a moment." while an earlier sort has not reported DONE yet (the arm shows READY a moment before its DONE reaches the bridge). A missing, non-string, or unsupported bin returns 400 with `{"error":...}`. Manual sorting while automatic sorting is enabled returns 400 with `{"error":"Pause automatic sorting before a manual sort."}`. Bin names must exactly match the uppercase values in `/api/state.bins` (normally PAPER, PLASTIC, METAL, ORGANIC). A manual sort increments its bin count and adds a `Manual` recent-sort record only after the controller reports matching DONE. Automatic sorting remains paused; the pickup area must clear before another automatic sort.
+`POST /api/sort` returns 200 with `{"accepted":true,"state":...}` when accepted. Rejected manual SORT and HOME requests return 409 with `{"accepted":false,"error":"<reason>","state":...}`: the arm's reason, or, for SORT, "The previous sort is still finishing; try again in a moment." while an earlier sort has not reported DONE yet (the arm shows READY a moment before its DONE reaches the bridge). A missing, non-string, or unsupported bin returns 400 with `{"error":...}`. Manual sorting while automatic sorting is enabled returns 400 with `{"error":"Pause automatic sorting before a manual sort."}`. Bin names must exactly match the uppercase values in `/api/state.bins` (`RECYCLE`, `TRASH` on this branch). A manual sort increments its bin count and adds a `Manual` recent-sort record only after the controller reports matching DONE. Automatic sorting remains paused; the pickup area must clear before another automatic sort.
 
 ## Online access (Tailscale Funnel)
 
@@ -183,7 +183,7 @@ node --check web/app.mjs
 
 ## Four-bin dependency update
 
-The dashboard follows PR #24: PAPER, PLASTIC, METAL, ORGANIC. The runtime reads allowed routes from `arm.BINS` and blocks Start sorting if the controller exposes the old two-bin contract. Startup uses ArmController.from_config(config, mock=...). Tests exercise the four-bin controller and completion callbacks. `recent_sorts` contains at most 20 completed SORT records with stable UUIDs, captured labels/bins, and completion timestamps. STOP/failure drops the pending record; HOME is never counted.
+The dashboard on this branch shows RECYCLE and TRASH. The runtime reads allowed routes from `arm.BINS` and blocks Start sorting unless the controller supports both. Startup uses ArmController.from_config(config, mock=...). Tests exercise that controller and completion callbacks. `recent_sorts` contains at most 20 completed SORT records with stable UUIDs, captured labels/bins, and completion timestamps. STOP/failure drops the pending record; HOME is never counted.
 
 ## Current verification and next work
 

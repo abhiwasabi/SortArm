@@ -25,10 +25,10 @@ test('minute series fills empty minutes and ends at the current minute', () => {
   assert.equal(series[3].stopped, 1);
 });
 
-test('bin rows keep the fixed four-bin order and fill missing bins', () => {
-  const rows = binRows([{bin: 'METAL', done: 3, stopped: 0, fault: 1, avg_cycle_s: 12}]);
-  assert.deepEqual(rows.map(r => r.bin), ['PAPER', 'PLASTIC', 'METAL', 'ORGANIC']);
-  assert.equal(rows[2].done, 3);
+test('bin rows keep recycle then trash and fill a missing bin', () => {
+  const rows = binRows([{bin: 'TRASH', done: 3, stopped: 0, fault: 1, avg_cycle_s: 12}]);
+  assert.deepEqual(rows.map(r => r.bin), ['RECYCLE', 'TRASH']);
+  assert.equal(rows[1].done, 3);
   assert.equal(rows[0].done, 0);
 });
 

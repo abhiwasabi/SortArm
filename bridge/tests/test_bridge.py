@@ -68,7 +68,7 @@ class FakeArm:
 
 
 def prediction(**changes):
-    return dict(dict(label='Plastic bottle', bin='PLASTIC', confidence=None,
+    return dict(dict(label='Plastic bottle', bin='RECYCLE', confidence=None,
                      item_present=True, needs_review=False), **changes)
 
 
@@ -96,7 +96,7 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(bridge.enabled)
 
     def test_rejected_home_leaves_automatic_sorting_paused(self):
-        self.arm.emit('BUSY', 'SORT PLASTIC')
+        self.arm.emit('BUSY', 'SORT RECYCLE')
         self.arm.last_rejection = 'Arm is busy'
         self.assertFalse(self.bridge.home())
         self.assertFalse(self.bridge.enabled)
@@ -107,44 +107,44 @@ class BridgeTests(unittest.TestCase):
     def test_one_sort_per_item_and_only_done_increments(self):
         self.assertTrue(self.bridge.enabled)
         self.assertTrue(self.result())
-        self.assertEqual(self.bridge.counts['PLASTIC'], 0)
+        self.assertEqual(self.bridge.counts['RECYCLE'], 0)
         self.arm.finish()
-        self.assertEqual(self.bridge.counts['PLASTIC'], 1)
+        self.assertEqual(self.bridge.counts['RECYCLE'], 1)
         self.assertFalse(self.result())
         empty = prediction(label='EMPTY', bin=None, item_present=False)
         self.result(empty)
         self.result(empty)
         self.assertTrue(self.result())
         self.arm.finish()
-        self.assertEqual(self.arm.commands, ['PLASTIC', 'PLASTIC'])
-        self.assertEqual(self.bridge.counts['PLASTIC'], 2)
+        self.assertEqual(self.arm.commands, ['RECYCLE', 'RECYCLE'])
+        self.assertEqual(self.bridge.counts['RECYCLE'], 2)
 
     def test_new_item_updates_during_motion_and_sorts_without_empty_area(self):
         self.assertTrue(self.result())
-        metal = prediction(label='Metal can', bin='METAL')
+        metal = prediction(label='Metal can', bin='TRASH')
         self.assertFalse(self.result(metal))
         self.assertEqual(self.bridge.snapshot()['label'], 'Plastic bottle')
         self.now += 5
         self.bridge.camera_frame((b'still', 'image/jpeg'))
         self.assertEqual(self.bridge.snapshot()['label'], 'Metal can')
         self.assertFalse(self.bridge.snapshot()['awaiting_clear'])
-        self.assertEqual(self.arm.commands, ['PLASTIC'])
+        self.assertEqual(self.arm.commands, ['RECYCLE'])
         self.arm.finish()
         self.assertTrue(self.result(metal))
         self.arm.finish()
-        self.assertEqual(self.arm.commands, ['PLASTIC', 'METAL'])
-        self.assertEqual(self.bridge.counts['METAL'], 1)
+        self.assertEqual(self.arm.commands, ['RECYCLE', 'TRASH'])
+        self.assertEqual(self.bridge.counts['TRASH'], 1)
         self.assertFalse(self.result(metal))
 
     def test_reworded_name_does_not_sort_the_same_item_again(self):
-        self.assertTrue(self.result(prediction(label='Celsius can', bin='METAL')))
+        self.assertTrue(self.result(prediction(label='Celsius can', bin='TRASH')))
         self.arm.finish()
-        self.assertFalse(self.result(prediction(label='Celsius energy drink can', bin='METAL')))
+        self.assertFalse(self.result(prediction(label='Celsius energy drink can', bin='TRASH')))
         self.assertEqual(self.bridge.status, 'Already sorted this item. Show a different item.')
-        self.assertEqual(self.arm.commands, ['METAL'])
-        self.assertTrue(self.result(prediction(label='Wellsley Farms water bottle', bin='PLASTIC')))
+        self.assertEqual(self.arm.commands, ['TRASH'])
+        self.assertTrue(self.result(prediction(label='Wellsley Farms water bottle', bin='RECYCLE')))
         self.arm.finish()
-        self.assertEqual(self.arm.commands, ['METAL', 'PLASTIC'])
+        self.assertEqual(self.arm.commands, ['TRASH', 'RECYCLE'])
 
     def test_physical_mode_still_requires_explicit_start_and_clear(self):
         arm = FakeArm()
@@ -159,90 +159,90 @@ class BridgeTests(unittest.TestCase):
         self.now += .1
         bridge.camera_frame((b'next', 'image/jpeg'))
         ticket = bridge.begin_prediction()
-        self.assertFalse(bridge.accept_prediction(ticket, prediction(label='Metal can', bin='METAL')))
-        self.assertEqual(arm.commands, ['PLASTIC'])
+        self.assertFalse(bridge.accept_prediction(ticket, prediction(label='Metal can', bin='TRASH')))
+        self.assertEqual(arm.commands, ['RECYCLE'])
 
     def test_history_uses_accepted_item_and_deduplicates_done(self):
         self.result()
         self.bridge.prediction = None
         self.arm.finish()
-        self.arm.emit('DONE', 'SORT PLASTIC')
+        self.arm.emit('DONE', 'SORT RECYCLE')
         rows = self.bridge.snapshot()['recent_sorts']
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]['label'], 'Plastic bottle')
-        self.assertEqual(rows[0]['bin'], 'PLASTIC')
+        self.assertEqual(rows[0]['bin'], 'RECYCLE')
         self.assertTrue(rows[0]['id'])
         self.assertTrue(rows[0]['completed_at'])
-        self.assertEqual(self.bridge.counts['PLASTIC'], 1)
+        self.assertEqual(self.bridge.counts['RECYCLE'], 1)
 
     def test_manual_sort_needs_no_camera_or_vision_and_counts_only_once_on_done(self):
         self.bridge.set_sorting(False)
         self.bridge.camera_lost()
         self.bridge.vision_ready = False
-        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        self.assertTrue(self.bridge.manual_sort('RECYCLE'))
         pending = dict(self.bridge.pending_sort)
         self.assertTrue(pending['id'])
         self.assertEqual(pending['label'], 'Manual')
         self.assertTrue(self.bridge.awaiting_clear)
-        self.assertEqual(self.bridge.status, 'Manual sort to PAPER requested.')
-        self.assertEqual(self.bridge.counts['PAPER'], 0)
+        self.assertEqual(self.bridge.status, 'Manual sort to RECYCLE requested.')
+        self.assertEqual(self.bridge.counts['RECYCLE'], 0)
         self.assertEqual(self.bridge.recent_sorts, [])
-        self.arm.emit('DONE', 'SORT METAL')
-        self.assertEqual(self.bridge.counts['PAPER'], 0)
+        self.arm.emit('DONE', 'SORT TRASH')
+        self.assertEqual(self.bridge.counts['RECYCLE'], 0)
         self.arm.finish()
-        self.arm.emit('DONE', 'SORT PAPER')
+        self.arm.emit('DONE', 'SORT RECYCLE')
         state = self.bridge.snapshot()
-        self.assertEqual(state['counts']['PAPER'], 1)
+        self.assertEqual(state['counts']['RECYCLE'], 1)
         self.assertEqual(len(state['recent_sorts']), 1)
         self.assertEqual(state['recent_sorts'][0]['id'], pending['id'])
         self.assertEqual(state['recent_sorts'][0]['label'], 'Manual')
-        self.assertEqual(state['recent_sorts'][0]['bin'], 'PAPER')
+        self.assertEqual(state['recent_sorts'][0]['bin'], 'RECYCLE')
         self.assertTrue(state['recent_sorts'][0]['completed_at'])
         self.assertIsNone(self.bridge.pending_sort)
 
     def test_rejected_manual_sort_keeps_the_running_sort_countable(self):
         self.bridge.set_sorting(False)
-        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        self.assertTrue(self.bridge.manual_sort('RECYCLE'))
         running = dict(self.bridge.pending_sort)
-        self.assertFalse(self.bridge.manual_sort('METAL'))  # arm is BUSY with PAPER
+        self.assertFalse(self.bridge.manual_sort('TRASH'))  # arm is BUSY with PAPER
         self.assertEqual(self.bridge.pending_sort, running)
         self.arm.finish()
         state = self.bridge.snapshot()
-        self.assertEqual(state['counts']['PAPER'], 1)
-        self.assertEqual(state['counts']['METAL'], 0)
+        self.assertEqual(state['counts']['RECYCLE'], 1)
+        self.assertEqual(state['counts']['TRASH'], 0)
         self.assertEqual([row['id'] for row in state['recent_sorts']], [running['id']])
 
     def test_manual_sort_done_emits_one_log_row_with_cycle_time(self):
         sort_log = Mock()
         self.bridge.sort_log = sort_log
         self.bridge.set_sorting(False)
-        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        self.assertTrue(self.bridge.manual_sort('RECYCLE'))
         sort_log.emit.assert_not_called()
         self.now += 2.5
         self.arm.finish()
-        self.arm.emit('DONE', 'SORT PAPER')
+        self.arm.emit('DONE', 'SORT RECYCLE')
         sort_log.emit.assert_called_once()
         event = sort_log.emit.call_args.args[0]
         self.assertEqual(event['label'], 'Manual')
-        self.assertEqual(event['bin'], 'PAPER')
+        self.assertEqual(event['bin'], 'RECYCLE')
         self.assertEqual(event['outcome'], 'DONE')
         self.assertEqual(event['cycle_s'], 2.5)
         self.assertIsNone(event['confidence'])
-        self.assertEqual(self.bridge.counts['PAPER'], 1)
+        self.assertEqual(self.bridge.counts['RECYCLE'], 1)
 
     def test_stop_during_manual_sort_emits_stopped_without_incrementing_counts(self):
         sort_log = Mock()
         self.bridge.sort_log = sort_log
         self.bridge.set_sorting(False)
         before = dict(self.bridge.counts)
-        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        self.assertTrue(self.bridge.manual_sort('RECYCLE'))
         self.now += 1.5
         self.assertTrue(self.bridge.stop())
         self.arm.finish()  # a delayed DONE cannot count or log the interrupted sort
         sort_log.emit.assert_called_once()
         event = sort_log.emit.call_args.args[0]
         self.assertEqual(event['label'], 'Manual')
-        self.assertEqual(event['bin'], 'PAPER')
+        self.assertEqual(event['bin'], 'RECYCLE')
         self.assertEqual(event['outcome'], 'STOPPED')
         self.assertEqual(event['cycle_s'], 1.5)
         self.assertIsNone(event['confidence'])
@@ -252,26 +252,26 @@ class BridgeTests(unittest.TestCase):
     def test_manual_sort_waits_until_the_finished_sort_is_counted(self):
         # The real arm reports READY just before its DONE notification reaches the bridge.
         self.bridge.set_sorting(False)
-        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        self.assertTrue(self.bridge.manual_sort('RECYCLE'))
         finished = dict(self.bridge.pending_sort)
         self.arm.state = 'READY'  # DONE for PAPER is still queued on the arm's notifier
-        for second_bin in ('PAPER', 'METAL'):
+        for second_bin in ('RECYCLE', 'TRASH'):
             with self.subTest(second_bin=second_bin):
                 self.assertFalse(self.bridge.manual_sort(second_bin))
                 self.assertEqual(self.bridge.rejection_reason(),
                                  'The previous sort is still finishing; try again in a moment.')
                 self.assertEqual(self.bridge.pending_sort, finished)
-        self.assertEqual(self.arm.commands, ['PAPER'])
-        self.arm.emit('DONE', 'SORT PAPER')  # the queued notifications arrive
+        self.assertEqual(self.arm.commands, ['RECYCLE'])
+        self.arm.emit('DONE', 'SORT RECYCLE')  # the queued notifications arrive
         self.arm.emit('READY')
-        self.assertEqual(self.bridge.counts['PAPER'], 1)
+        self.assertEqual(self.bridge.counts['RECYCLE'], 1)
         self.assertIsNone(self.bridge.pending_sort)
-        self.assertTrue(self.bridge.manual_sort('METAL'))  # now accepted
-        self.assertEqual(self.bridge.counts['METAL'], 0)
+        self.assertTrue(self.bridge.manual_sort('TRASH'))  # now accepted
+        self.assertEqual(self.bridge.counts['TRASH'], 0)
 
     def test_manual_sort_requires_automatic_sorting_to_be_paused(self):
         with self.assertRaisesRegex(ValueError, 'Pause automatic sorting before a manual sort.'):
-            self.bridge.manual_sort('PAPER')
+            self.bridge.manual_sort('RECYCLE')
         self.assertTrue(self.bridge.enabled)
         self.assertIsNone(self.bridge.pending_sort)
         self.assertEqual(self.arm.commands, [])
@@ -280,35 +280,35 @@ class BridgeTests(unittest.TestCase):
         # Simulated continuous mode: Pause, manual sort, Start. Classification was paused during the
         # manual sort, so the item still in view must not be sorted (and counted) a second time.
         self.bridge.set_sorting(False)
-        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        self.assertTrue(self.bridge.manual_sort('RECYCLE'))
         self.arm.finish()
         self.bridge.set_sorting(True)
         self.assertFalse(self.result())
         self.assertEqual(self.bridge.status, 'Already sorted this item. Show a different item.')
         self.assertFalse(self.result())
-        self.assertEqual(self.arm.commands, ['PAPER'])
-        self.assertEqual((self.bridge.counts['PAPER'], self.bridge.counts['PLASTIC']), (1, 0))
-        self.assertTrue(self.result(prediction(label='Metal can', bin='METAL')))
+        self.assertEqual(self.arm.commands, ['RECYCLE'])
+        self.assertEqual((self.bridge.counts['RECYCLE'], self.bridge.counts['TRASH']), (1, 0))
+        self.assertTrue(self.result(prediction(label='Metal can', bin='TRASH')))
         self.arm.finish()
-        self.assertEqual(self.arm.commands, ['PAPER', 'METAL'])
+        self.assertEqual(self.arm.commands, ['RECYCLE', 'TRASH'])
 
     def test_empty_area_after_manual_sort_lets_the_next_item_sort(self):
         self.bridge.set_sorting(False)
-        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        self.assertTrue(self.bridge.manual_sort('RECYCLE'))
         self.arm.finish()
         self.bridge.set_sorting(True)
         empty = prediction(label='EMPTY', bin=None, item_present=False)
         self.result(empty)
         self.result(empty)
         self.assertTrue(self.result())
-        self.assertEqual(self.arm.commands, ['PAPER', 'PLASTIC'])
+        self.assertEqual(self.arm.commands, ['RECYCLE', 'RECYCLE'])
 
     def test_manual_sort_rejection_keeps_arm_state_and_reason(self):
         self.bridge.set_sorting(False)
         for state in ('ERROR', 'BUSY', 'DONE'):
             with self.subTest(state=state):
                 self.arm.emit(state, 'original detail')
-                self.assertFalse(self.bridge.manual_sort('METAL'))
+                self.assertFalse(self.bridge.manual_sort('TRASH'))
                 self.assertEqual(self.arm.state, state)
                 self.assertEqual(self.arm.detail, 'original detail')
                 self.assertEqual(self.bridge.status, self.arm.last_rejection)
@@ -319,13 +319,13 @@ class BridgeTests(unittest.TestCase):
 
     def test_manual_sort_rejects_unknown_non_string_and_unavailable_bins(self):
         self.bridge.set_sorting(False)
-        self.bridge.allowed_bins = ('PAPER', 'PLASTIC')
-        for bin_name in ('COMPOST', 'paper', 'METAL', None, 1, [], {}):
+        self.bridge.allowed_bins = ('RECYCLE',)
+        for bin_name in ('COMPOST', 'paper', 'TRASH', None, 1, [], {}):
             with self.subTest(bin_name=bin_name), self.assertRaises(ValueError):
                 self.bridge.manual_sort(bin_name)
         self.assertIsNone(self.bridge.pending_sort)
         self.assertEqual(self.arm.commands, [])
-        self.assertEqual(self.bridge.snapshot()['bins'], ['PAPER', 'PLASTIC'])
+        self.assertEqual(self.bridge.snapshot()['bins'], ['RECYCLE'])
 
     def test_home_status_reports_acceptance_or_rejection(self):
         self.assertTrue(self.bridge.home())
@@ -341,7 +341,7 @@ class BridgeTests(unittest.TestCase):
         self.bridge.set_sorting(False)
         self.arm.sort = lambda bin_name: False
         self.arm.home = lambda: False
-        self.assertFalse(self.bridge.manual_sort('PAPER'))
+        self.assertFalse(self.bridge.manual_sort('RECYCLE'))
         self.assertEqual(self.bridge.status, 'Arm rejected the manual sort.')
         self.assertIsNone(self.bridge.pending_sort)
         self.assertFalse(self.bridge.home())
@@ -371,7 +371,7 @@ class BridgeTests(unittest.TestCase):
         self.bridge.home()
         self.assertFalse(self.bridge.accept_prediction(ticket, prediction()))
         self.assertEqual(self.arm.commands, [])
-        self.assertEqual(self.bridge.counts['PLASTIC'], 0)
+        self.assertEqual(self.bridge.counts['RECYCLE'], 0)
 
     def test_camera_loss_and_pause_invalidate_model_results(self):
         ticket = self.bridge.begin_prediction()
@@ -411,7 +411,7 @@ class BridgeTests(unittest.TestCase):
         self.bridge.camera_frame((b'still there', 'image/jpeg'))
         snap = self.bridge.snapshot()
         self.assertEqual(snap['label'], 'Plastic bottle')
-        self.assertEqual(snap['bin'], 'PLASTIC')
+        self.assertEqual(snap['bin'], 'RECYCLE')
 
     def test_empty_pickup_keeps_the_detection_for_five_seconds(self):
         self.bridge.set_swarm_note('Swarms approves this item because it is dry')
@@ -419,7 +419,7 @@ class BridgeTests(unittest.TestCase):
         self.result(prediction(label='EMPTY', bin=None, item_present=False))
         snap = self.bridge.snapshot()
         self.assertEqual(snap['label'], 'Plastic bottle')
-        self.assertEqual(snap['bin'], 'PLASTIC')
+        self.assertEqual(snap['bin'], 'RECYCLE')
         self.assertEqual(snap['swarm_check'], 'Swarms approves this item because it is dry')
         self.now += 5
         self.bridge.camera_frame((b'gone', 'image/jpeg'))
@@ -435,16 +435,16 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(self.result())
         self.bridge.clear_displayed_item()
         self.now += 1
-        self.result(prediction(label='Metal can', bin='METAL'))
+        self.result(prediction(label='Metal can', bin='TRASH'))
         snap = self.bridge.snapshot()
         self.assertEqual(snap['label'], 'Plastic bottle')
-        self.assertEqual(snap['bin'], 'PLASTIC')
+        self.assertEqual(snap['bin'], 'RECYCLE')
         self.assertEqual(snap['swarm_check'], 'Swarms approves this item because it is dry')
         self.now += 5
         self.bridge.camera_frame((b'next', 'image/jpeg'))
         snap = self.bridge.snapshot()
         self.assertEqual(snap['label'], 'Metal can')
-        self.assertEqual(snap['bin'], 'METAL')
+        self.assertEqual(snap['bin'], 'TRASH')
         self.assertTrue(self.bridge.enabled)
 
     def test_clearing_the_display_keeps_sorting_armed(self):
@@ -477,7 +477,7 @@ class BridgeTests(unittest.TestCase):
     def test_prediction_error_pauses_and_home_is_not_counted(self):
         self.bridge.prediction_failed(self.bridge.begin_prediction())
         self.assertFalse(self.bridge.enabled)
-        self.assertEqual(self.bridge.counts, {'PAPER': 0, 'PLASTIC': 0, 'METAL': 0, 'ORGANIC': 0})
+        self.assertEqual(self.bridge.counts, {'RECYCLE': 0, 'TRASH': 0})
 
     def test_temporary_prediction_error_keeps_simulated_sorting_armed(self):
         ticket = self.bridge.begin_prediction()
@@ -542,7 +542,7 @@ class HttpTests(unittest.TestCase):
         with self.request('/api/state') as response:
             state = json.load(response)
             self.assertTrue(state['simulation'])
-            self.assertEqual(state['bins'], ['PAPER', 'PLASTIC', 'METAL', 'ORGANIC'])
+            self.assertEqual(state['bins'], ['RECYCLE', 'TRASH'])
         with self.assertRaises(HTTPError):
             self.request('/../bridge/core.py')
 
@@ -550,7 +550,7 @@ class HttpTests(unittest.TestCase):
         for path in ('/api/home', '/api/sort'):
             for headers in ({'Origin': 'https://other.example'}, {'Host': 'other.example'}):
                 with self.assertRaises(HTTPError) as error:
-                    self.request(path, {'bin': 'PAPER'}, headers)
+                    self.request(path, {'bin': 'RECYCLE'}, headers)
                 self.assertEqual(error.exception.code, 403)
 
     def test_manual_sort_accepts_without_camera_or_vision_and_returns_rejection_reason(self):
@@ -560,14 +560,14 @@ class HttpTests(unittest.TestCase):
         self.bridge.vision_ready = False
         self.bridge.frame = self.bridge.frame_at = None
         try:
-            with self.request('/api/sort', {'bin': 'ORGANIC'}) as response:
+            with self.request('/api/sort', {'bin': 'TRASH'}) as response:
                 self.assertEqual(response.status, 200)
                 result = json.load(response)
             self.assertTrue(result['accepted'])
             self.assertEqual(result['state']['arm_state'], 'BUSY')
-            self.assertEqual(result['state']['counts']['ORGANIC'], 0)
+            self.assertEqual(result['state']['counts']['TRASH'], 0)
             with self.assertRaises(HTTPError) as error:
-                self.request('/api/sort', {'bin': 'PAPER'})
+                self.request('/api/sort', {'bin': 'RECYCLE'})
             self.assertEqual(error.exception.code, 409)
             result = json.load(error.exception)
             self.assertFalse(result['accepted'])
@@ -576,7 +576,7 @@ class HttpTests(unittest.TestCase):
             self.assertEqual(result['state']['status'], result['error'])
             self.assertEqual(result['state']['arm_state'], 'BUSY')
             # The rejected PAPER request must not drop the ORGANIC sort that is still running.
-            self.assertEqual(self.bridge.pending_sort['bin'], 'ORGANIC')
+            self.assertEqual(self.bridge.pending_sort['bin'], 'TRASH')
         finally:
             self.bridge.stop()
             self.bridge.vision_ready = True
@@ -594,7 +594,7 @@ class HttpTests(unittest.TestCase):
         self.bridge.set_sorting(True)
         try:
             with self.assertRaises(HTTPError) as error:
-                self.request('/api/sort', {'bin': 'PAPER'})
+                self.request('/api/sort', {'bin': 'RECYCLE'})
             self.assertEqual(error.exception.code, 400)
             self.assertEqual(json.load(error.exception),
                              {'error': 'Pause automatic sorting before a manual sort.'})
@@ -605,7 +605,7 @@ class HttpTests(unittest.TestCase):
         self.bridge.stop()
         self.bridge.home()
         self.bridge.set_sorting(False)  # simulated HOME re-arms automatic sorting
-        self.assertTrue(self.bridge.manual_sort('METAL'))
+        self.assertTrue(self.bridge.manual_sort('TRASH'))
         try:
             with self.assertRaises(HTTPError) as error:
                 self.request('/api/home', {})

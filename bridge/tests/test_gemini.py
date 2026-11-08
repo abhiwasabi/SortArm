@@ -12,7 +12,7 @@ class GeminiTests(unittest.TestCase):
             'content': {'parts': [{'text': json.dumps(result)}]}}]}).encode())
 
     def test_flash_lite_uses_low_latency_settings(self):
-        raw = dict(label='Plastic bottle', item_present=True, needs_review=False, bin='PLASTIC')
+        raw = dict(label='Plastic bottle', item_present=True, needs_review=False, bin='RECYCLE')
         with patch('urllib.request.urlopen', return_value=self.response(raw)) as request:
             GeminiPredictor(key='test-key', model='gemini-3.5-flash-lite').predict((b'jpeg', 'image/jpeg'))
         config = json.loads(request.call_args.args[0].data)['generationConfig']
@@ -20,7 +20,7 @@ class GeminiTests(unittest.TestCase):
         self.assertEqual(config['mediaResolution'], 'MEDIA_RESOLUTION_LOW')
 
     def test_gemini_38_flash_uses_low_thinking(self):
-        raw = dict(label='Plastic bottle', item_present=True, needs_review=False, bin='PLASTIC')
+        raw = dict(label='Plastic bottle', item_present=True, needs_review=False, bin='RECYCLE')
         with patch('urllib.request.urlopen', return_value=self.response(raw)) as request:
             GeminiPredictor(key='test-key', model='gemini-3.8-flash').predict((b'jpeg', 'image/jpeg'))
         config = json.loads(request.call_args.args[0].data)['generationConfig']
@@ -44,7 +44,7 @@ class GeminiTests(unittest.TestCase):
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-only-key', 'GEMINI_MODEL': 'test-model'})
     def test_image_schema_and_secret_header_with_no_fabricated_confidence(self):
-        raw = dict(label='Plastic bottle', item_present=True, needs_review=False, bin='PLASTIC')
+        raw = dict(label='Plastic bottle', item_present=True, needs_review=False, bin='RECYCLE')
         with patch('urllib.request.urlopen', return_value=self.response(raw)) as request:
             result = GeminiPredictor().predict((b'jpeg', 'image/jpeg'))
         self.assertIsNone(result['confidence'])
@@ -58,10 +58,10 @@ class GeminiTests(unittest.TestCase):
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-only-key', 'GEMINI_MODEL': 'test-model'})
     def test_named_objects_keep_a_dominant_material_bin(self):
         cases = (
-            ('Cracker Jack bag', 'PLASTIC'),
-            ('cardboard shipping box', 'PAPER'),
-            ('aluminum soda can', 'METAL'),
-            ('apple core', 'ORGANIC'),
+            ('Cracker Jack bag', 'RECYCLE'),
+            ('cardboard shipping box', 'RECYCLE'),
+            ('aluminum soda can', 'RECYCLE'),
+            ('apple core', 'TRASH'),
         )
         for label, bin_name in cases:
             raw = dict(label=label, item_present=True, needs_review=False, bin=bin_name)
@@ -71,7 +71,7 @@ class GeminiTests(unittest.TestCase):
             prompt = json.loads(request.call_args.args[0].data)['contents'][0]['parts'][0]['text']
             schema = json.loads(request.call_args.args[0].data)['generationConfig']['responseSchema']
         self.assertNotIn('enum', schema['properties']['label'])
-        for rule in ('Cracker Jack bag', 'PAPER', 'PLASTIC', 'METAL', 'ORGANIC', 'clearly dominant'):
+        for rule in ('Cracker Jack bag', 'RECYCLE', 'TRASH', 'clearly dominant'):
             self.assertIn(rule, prompt)
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-only-key', 'GEMINI_MODEL': 'test-model'})
@@ -83,8 +83,8 @@ class GeminiTests(unittest.TestCase):
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-only-key', 'GEMINI_MODEL': 'test-model'})
     def test_incomplete_and_unclear_binned_responses_are_rejected(self):
-        unclear = dict(label='UNKNOWN', item_present=True, needs_review=True, bin='PLASTIC')
-        named = dict(label='Cracker Jack bag', item_present=True, needs_review=False, bin='PLASTIC')
+        unclear = dict(label='UNKNOWN', item_present=True, needs_review=True, bin='RECYCLE')
+        named = dict(label='Cracker Jack bag', item_present=True, needs_review=False, bin='RECYCLE')
         for response in (self.response(unclear), self.response(named, finish='MAX_TOKENS')):
             with patch('urllib.request.urlopen', return_value=response):
                 with self.assertRaises(ValueError):

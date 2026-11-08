@@ -5,10 +5,10 @@ import { derivePrediction, normalizeState } from "./state.mjs";
 const sample = {
   label: "Plastic bottle",
   confidence: 0.94,
-  bin: "PLASTIC",
+  bin: "RECYCLE",
   arm_state: "READY",
   connected: true,
-  counts: { PAPER: 3, PLASTIC: 4, METAL: 2, ORGANIC: 1 },
+  counts: { RECYCLE: 7, TRASH: 3 },
   prediction_at: "2026-11-07T05:30:00Z"
 };
 
@@ -24,12 +24,12 @@ test('access defaults preserve older local bridges and honor public viewer/opera
 });
 
 test('manual bins default for older bridges and preserve a configured subset and order', () => {
-  assert.deepEqual(normalizeState(sample).bins, ['PAPER', 'PLASTIC', 'METAL', 'ORGANIC']);
-  assert.deepEqual(normalizeState({ ...sample, bins: ['METAL', 'PAPER'] }).bins, ['METAL', 'PAPER']);
-  assert.deepEqual(normalizeState({ ...sample, bins: [' paper ', 'PAPER', null, '', '<script>', 'GLASS'] }).bins,
-    ['PAPER', 'GLASS']);
+  assert.deepEqual(normalizeState(sample).bins, ['RECYCLE', 'TRASH']);
+  assert.deepEqual(normalizeState({ ...sample, bins: ['TRASH', 'RECYCLE'] }).bins, ['TRASH', 'RECYCLE']);
+  assert.deepEqual(normalizeState({ ...sample, bins: [' paper ', 'RECYCLE', null, '', '<script>', 'GLASS'] }).bins,
+    ['PAPER', 'RECYCLE', 'GLASS']);
   assert.deepEqual(normalizeState({ ...sample, bins: [] }).bins, []);
-  assert.deepEqual(normalizeState({ ...sample, bins: null }).bins, ['PAPER', 'PLASTIC', 'METAL', 'ORGANIC']);
+  assert.deepEqual(normalizeState({ ...sample, bins: null }).bins, ['RECYCLE', 'TRASH']);
 });
 
 test("the Swarms check is kept for the camera panel", () => {
@@ -47,9 +47,9 @@ test("normalizes the agreed API fields without changing confirmed counts", () =>
   const state = normalizeState(sample);
   assert.equal(state.label, "Plastic bottle");
   assert.equal(state.confidence, 0.94);
-  assert.equal(state.bin, "PLASTIC");
+  assert.equal(state.bin, "RECYCLE");
   assert.equal(state.armState, "READY");
-  assert.deepEqual(state.counts, { PAPER: 3, PLASTIC: 4, METAL: 2, ORGANIC: 1 });
+  assert.deepEqual(state.counts, { RECYCLE: 7, TRASH: 3 });
 });
 
 test("normalizes camera source and vision availability for settings", () => {
@@ -66,7 +66,7 @@ test("normalizes camera source and vision availability for settings", () => {
 });
 
 test("unknown items have no displayed bin even if an invalid API response includes one", () => {
-  const state = normalizeState({ ...sample, label: "UNKNOWN", bin: "METAL" });
+  const state = normalizeState({ ...sample, label: "UNKNOWN", bin: "TRASH" });
   assert.equal(state.bin, null);
   assert.equal(derivePrediction(state, { backendOnline: true, now: state.predictionAt }).kind, "review");
 });
@@ -76,7 +76,7 @@ test("a named item stays on screen after its capture time ages", () => {
   const display = derivePrediction(state, { backendOnline: true, now: state.predictionAt + 9000 });
   assert.equal(display.kind, "detected");
   assert.equal(display.label, "Plastic bottle");
-  assert.equal(display.bin, "PLASTIC");
+  assert.equal(display.bin, "RECYCLE");
 });
 
 test("an old unknown prediction is hidden instead of being shown as current", () => {
@@ -113,22 +113,22 @@ test("camera loss hides the route even if the backend still reports an old item"
 test("malformed state payloads fail and incomplete counts stay unavailable", () => {
   assert.throws(() => normalizeState(null), TypeError);
   assert.throws(() => normalizeState([]), TypeError);
-  const state = normalizeState({ ...sample, counts: { PAPER: -1, PLASTIC: 0 } });
-  assert.deepEqual(state.counts, { PAPER: null, PLASTIC: 0, METAL: null, ORGANIC: null });
+  const state = normalizeState({ ...sample, counts: { RECYCLE: -1, TRASH: 0 } });
+  assert.deepEqual(state.counts, { RECYCLE: null, TRASH: 0 });
 });
 
-test("accepts all four material bins and rejects the old recycle and trash routes", () => {
-  for (const bin of ["PAPER", "PLASTIC", "METAL", "ORGANIC"]) {
+test("accepts recycle and trash and rejects the four material routes", () => {
+  for (const bin of ["RECYCLE", "TRASH"]) {
     assert.equal(normalizeState({ ...sample, bin: bin.toLowerCase() }).bin, bin);
   }
-  for (const bin of ["RECYCLE", "TRASH"]) {
+  for (const bin of ["PAPER", "PLASTIC", "METAL", "ORGANIC"]) {
     const state = normalizeState({ ...sample, bin });
     assert.equal(state.bin, null);
     assert.equal(derivePrediction(state, { backendOnline: true,
       cameraOnline: true, now: state.predictionAt }).kind, "review");
   }
-  assert.deepEqual(normalizeState({ ...sample, counts: { RECYCLE: 9, TRASH: 6 } }).counts,
-    { PAPER: null, PLASTIC: null, METAL: null, ORGANIC: null });
+  assert.deepEqual(normalizeState({ ...sample, counts: { PAPER: 9, PLASTIC: 6 } }).counts,
+    { RECYCLE: null, TRASH: null });
 });
 
 test("a supported bin remains visible when the predictor omits confidence", () => {
@@ -136,39 +136,39 @@ test("a supported bin remains visible when the predictor omits confidence", () =
   const prediction = derivePrediction(state, {
     backendOnline: true, cameraOnline: true, now: state.predictionAt
   });
-  assert.equal(prediction.bin, "PLASTIC");
+  assert.equal(prediction.bin, "RECYCLE");
   assert.equal(prediction.confidence, null);
   assert.match(prediction.note, /No model confidence score/);
 
   const untimed = normalizeState({ ...sample, confidence: null, prediction_at: undefined });
   const latest = derivePrediction(untimed, { backendOnline: true, cameraOnline: true });
   assert.equal(latest.kind, "latest");
-  assert.equal(latest.bin, "PLASTIC");
+  assert.equal(latest.bin, "RECYCLE");
   assert.match(latest.note, /Capture time and model confidence score were not supplied/);
 });
 
 test("completed-sort history is separate from the current prediction", () => {
   assert.equal(normalizeState(sample).recentSorts, null);
   assert.deepEqual(normalizeState({ ...sample, recent_sorts: [] }).recentSorts, []);
-  const completed = { id: "sort-1", label: "Plastic bottle", bin: "PLASTIC",
+  const completed = { id: "sort-1", label: "Plastic bottle", bin: "RECYCLE",
     completed_at: "2026-11-07T05:31:00Z" };
-  const state = normalizeState({ ...sample, label: "Paper flyer", bin: "PAPER",
+  const state = normalizeState({ ...sample, label: "Paper flyer", bin: "RECYCLE",
     recent_sorts: [completed] });
   assert.equal(state.label, "Paper flyer");
-  assert.deepEqual(state.recentSorts, [{ id: "sort-1", label: "Plastic bottle", bin: "PLASTIC",
+  assert.deepEqual(state.recentSorts, [{ id: "sort-1", label: "Plastic bottle", bin: "RECYCLE",
     completedAt: "2026-11-07T05:31:00.000Z" }]);
 });
 
 test("history rejects invalid and duplicate events and keeps the newest 20", () => {
   const entries = Array.from({ length: 25 }, (_, index) => ({
-    id: `sort-${index}`, label: `Item ${index}`, bin: "METAL",
+    id: `sort-${index}`, label: `Item ${index}`, bin: "TRASH",
     completed_at: new Date(Date.UTC(2026, 10, 7, 5, index)).toISOString()
   }));
   entries.push(entries[24], { id: "bad-bin", label: "Item", bin: "COMPOST",
     completed_at: "2026-11-07T05:40:00Z" },
-  { id: "legacy", label: "Item", bin: "RECYCLE", completed_at: "2026-11-07T05:40:00Z" },
-  { id: "bad-date", label: "Item", bin: "ORGANIC", completed_at: "bad" },
-  { id: "unknown", label: "UNKNOWN", bin: "PAPER", completed_at: "2026-11-07T05:40:00Z" });
+  { id: "legacy", label: "Item", bin: "PAPER", completed_at: "2026-11-07T05:40:00Z" },
+  { id: "bad-date", label: "Item", bin: "TRASH", completed_at: "bad" },
+  { id: "unknown", label: "UNKNOWN", bin: "RECYCLE", completed_at: "2026-11-07T05:40:00Z" });
   const history = normalizeState({ ...sample, recent_sorts: entries }).recentSorts;
   assert.equal(history.length, 20);
   assert.equal(history[0].id, "sort-24");
@@ -179,13 +179,13 @@ test("history rejects invalid and duplicate events and keeps the newest 20", () 
 test("a supported classifier decision can be displayed without fabricating confidence", () => {
   const state = normalizeState({ ...sample, confidence: null });
   const display = derivePrediction(state, { backendOnline: true, now: state.predictionAt });
-  assert.equal(display.bin, "PLASTIC");
+  assert.equal(display.bin, "RECYCLE");
   assert.equal(display.confidence, null);
 });
 
 test('completed sort waits for clear instead of claiming identification is pending', () => {
   const state = normalizeState({label:'UNKNOWN', awaiting_clear:true, sorting_enabled:true, simulation:true,
-    recent_sorts:[{id:'one',label:'Plastic bottle',bin:'PLASTIC',completed_at:new Date().toISOString()}]});
+    recent_sorts:[{id:'one',label:'Plastic bottle',bin:'RECYCLE',completed_at:new Date().toISOString()}]});
   const result = derivePrediction(state, {backendOnline:true, cameraOnline:true});
   assert.equal(result.kind, 'completed');
   assert.equal(result.label, 'Checking for a new item…');
@@ -194,28 +194,28 @@ test('completed sort waits for clear instead of claiming identification is pendi
 });
 
 test('a sorted item name stays after its capture time ages', () => {
-  const state = normalizeState({label:'Plastic bottle', bin:'PLASTIC',
+  const state = normalizeState({label:'Plastic bottle', bin:'RECYCLE',
     prediction_at:new Date(Date.now()-20000).toISOString(), simulation:true,
     awaiting_clear:true, sorting_enabled:true});
   const result = derivePrediction(state, {backendOnline:true, cameraOnline:true});
   assert.equal(result.label, 'Plastic bottle');
-  assert.equal(result.bin, 'PLASTIC');
+  assert.equal(result.bin, 'RECYCLE');
 });
 
 test('fresh plastic result replaces old metal label while duplicate-sort protection is active', () => {
   const now = Date.now();
-  const state = normalizeState({label:'Plastic bottle', bin:'PLASTIC', prediction_at:new Date(now).toISOString(), simulation:true,
+  const state = normalizeState({label:'Plastic bottle', bin:'RECYCLE', prediction_at:new Date(now).toISOString(), simulation:true,
     awaiting_clear:true, sorting_enabled:true,
-    recent_sorts:[{id:'can',label:'Metal can',bin:'METAL',completed_at:new Date(now-1000).toISOString()}]});
+    recent_sorts:[{id:'can',label:'Metal can',bin:'TRASH',completed_at:new Date(now-1000).toISOString()}]});
   const result = derivePrediction(state, {backendOnline:true,cameraOnline:true,now});
   assert.equal(result.label,'Plastic bottle');
-  assert.equal(result.bin,'PLASTIC');
+  assert.equal(result.bin,'RECYCLE');
   assert.match(result.note,/Show a different item/);
 });
 
 test('physical sorting still asks for a clear pickup area', () => {
   const now = Date.now();
-  const state = normalizeState({label:'Metal can', bin:'METAL', prediction_at:new Date(now).toISOString(),
+  const state = normalizeState({label:'Metal can', bin:'TRASH', prediction_at:new Date(now).toISOString(),
     awaiting_clear:true, sorting_enabled:true, simulation:false});
   const result = derivePrediction(state, {backendOnline:true,cameraOnline:true,now});
   assert.match(result.note,/empty pickup area/);

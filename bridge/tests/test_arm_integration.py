@@ -19,14 +19,14 @@ class ControllerIntegrationTests(unittest.TestCase):
         try:
             self.assertTrue(bridge.home())
             self.assertTrue(arm.wait_idle(15))
-            self.assertTrue(bridge.manual_sort('PAPER'))
+            self.assertTrue(bridge.manual_sort('RECYCLE'))
             self.assertTrue(arm.wait_idle(15))
             state = bridge.snapshot()
             self.assertEqual(state['arm_state'], 'READY')
-            self.assertEqual(state['counts'], {'PAPER': 1, 'PLASTIC': 0, 'METAL': 0, 'ORGANIC': 0})
+            self.assertEqual(state['counts'], {'RECYCLE': 1, 'TRASH': 0})
             self.assertEqual(len(state['recent_sorts']), 1)
             self.assertEqual(state['recent_sorts'][0]['label'], 'Manual')
-            self.assertEqual(state['recent_sorts'][0]['bin'], 'PAPER')
+            self.assertEqual(state['recent_sorts'][0]['bin'], 'RECYCLE')
             self.assertFalse(state['sorting_enabled'])
             self.assertIsNone(bridge.pending_sort)
         finally:
@@ -41,17 +41,17 @@ class ControllerIntegrationTests(unittest.TestCase):
             bridge.camera_frame((b'frame', 'image/jpeg'))
             self.assertTrue(bridge.home())
             self.assertTrue(arm.wait_idle(15))
-            self.assertEqual(bridge.counts, {'PAPER': 0, 'PLASTIC': 0, 'METAL': 0, 'ORGANIC': 0})
-            if set(BINS) != {'PAPER', 'PLASTIC', 'METAL', 'ORGANIC'}:
+            self.assertEqual(bridge.counts, {'RECYCLE': 0, 'TRASH': 0})
+            if set(BINS) != {'RECYCLE', 'TRASH'}:
                 with self.assertRaisesRegex(ValueError, 'must support'):
                     bridge.set_sorting(True)
                 return
             bridge.set_sorting(True)
             ticket = bridge.begin_prediction()
-            self.assertTrue(bridge.accept_prediction(ticket, dict(label='Plastic bottle', bin='PLASTIC',
+            self.assertTrue(bridge.accept_prediction(ticket, dict(label='Plastic bottle', bin='RECYCLE',
                             confidence=None, item_present=True, needs_review=False)))
             self.assertTrue(arm.wait_idle(15))
-            self.assertEqual(bridge.snapshot()['counts']['PLASTIC'], 1)
+            self.assertEqual(bridge.snapshot()['counts']['RECYCLE'], 1)
             bridge.stop()
             self.assertFalse(bridge.enabled)
             self.assertEqual(arm.state, 'ERROR')

@@ -142,10 +142,8 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
 .bin-card { display: flex; align-items: center; gap: 15px; min-height: 112px; padding: 19px; background: white; border-radius: 6px; }
 .bin-symbol { width: 55px; height: 55px; display: grid; place-items: center; border-radius: 6px; flex: 0 0 auto; }
 .bin-symbol svg { width: 32px; height: 32px; }
-.paper-card .bin-symbol { background: #f5eee2; color: #8f6e45; }
-.plastic-card .bin-symbol { background: #e5f0f5; color: #467b9a; }
-.metal-card .bin-symbol { background: #ebedf4; color: #6d6f85; }
-.organic-card .bin-symbol { background: #e6f1e5; color: #568451; }
+.recycle-card .bin-symbol { background: #e5f0f5; color: #467b9a; }
+.trash-card .bin-symbol { background: #f3eee6; color: #7a6248; }
 .bin-card > div { display: grid; gap: 1px; }
 .bin-card > div span { color: var(--muted); font-size: 11px; }
 .bin-card strong { font-size: 32px; font-weight: 720; line-height: 1; letter-spacing: -.04em; }
@@ -164,10 +162,8 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
 .history-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 4px; font-size: 11px; font-weight: 780; letter-spacing: -.03em; }
 .history-item { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 690; }
 .history-bin { padding: 7px 9px; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; }
-.history-icon[data-bin="PAPER"], .history-bin[data-bin="PAPER"] { background: #f5eee2; color: #75552f; }
-.history-icon[data-bin="PLASTIC"], .history-bin[data-bin="PLASTIC"] { background: #e5f0f5; color: #2d6380; }
-.history-icon[data-bin="METAL"], .history-bin[data-bin="METAL"] { background: #ebedf4; color: #535569; }
-.history-icon[data-bin="ORGANIC"], .history-bin[data-bin="ORGANIC"] { background: #e6f1e5; color: #386338; }
+.history-icon[data-bin="RECYCLE"], .history-bin[data-bin="RECYCLE"] { background: #e5f0f5; color: #2d6380; }
+.history-icon[data-bin="TRASH"], .history-bin[data-bin="TRASH"] { background: #f3eee6; color: #7a6248; }
 .history-time { min-width: 92px; color: var(--muted); font-size: 11px; text-align: right; white-space: nowrap; }
 
 .detail-heading { margin: 3px 0 22px; }
@@ -338,7 +334,7 @@ h1, .detail-heading h1, .settings-heading h1 { font-size: clamp(26px, 2.3vw, 32p
 .safety-note { font-size: 12px; }
 .totals { padding: 26px 0 0; margin-top: 30px; border-top: 1px solid var(--line); border-radius: 0; background: transparent; }
 .totals-heading h2 { font-size: 22px; font-weight: 500; }
-.bin-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.bin-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .bin-card { min-height: 126px; padding: 16px; gap: 12px; border: 1px solid var(--line); align-items: flex-start; }
 .bin-symbol { width: 32px; height: 32px; border-radius: 4px; }
 .bin-symbol svg { width: 22px; height: 22px; }
