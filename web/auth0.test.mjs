@@ -64,7 +64,7 @@ test('configured Auth0 hides controls until signed in and leaves STOP public', a
   assert.equal(signedOut.calls.at(-1).options.headers, undefined);
   await signedOut.window.fetch('/api/stop', {method: 'POST'});
   assert.equal(signedOut.calls.at(-1).options.headers, undefined);
-  assert.equal(signedOut.calls.some((call) => call.url === 'login'), false);
+  assert.equal(signedOut.calls.some((call) => call.url === 'login'), true);
   await signedOut.element('authSignIn').listeners.click();
   assert.equal(signedOut.calls.at(-1).url, 'login');
 

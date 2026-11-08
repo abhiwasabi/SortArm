@@ -45,13 +45,13 @@ Set keys in your shell environment; never put them in `web/`, a URL, or Git. Thi
 
 ## Auth0 operator login
 
-Auth0 is used only by the public Funnel server (`--public-port`). The laptop dashboard on port 4173 never asks for Auth0, including `--mock` and `--mock-arm`, even when `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, and `AUTH0_AUDIENCE` are set.
+The demo asks for Auth0 before the operator can start the sorter. `python -m bridge` uses the project tenant when `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, and `AUTH0_AUDIENCE` are unset: `dev-ilye6s18ng7ernps.us.auth0.com`, client `rd4I86eUTelgHzFYI9mCdeRgAq0bAz8a`, and audience `https://sharkbyte.local/api`. Set all three together only to point at a different tenant. A partial set fails startup. No client secret is stored. `--no-auth` skips login for an offline trial.
 
-When the public port is started and those variables are unset, the bridge uses the project tenant: `dev-ilye6s18ng7ernps.us.auth0.com`, client `rd4I86eUTelgHzFYI9mCdeRgAq0bAz8a`, and audience `https://sharkbyte.local/api`. Set all three together only to point at a different tenant. A partial set fails startup. No client secret is stored.
+The signed-in account needs the SharkByte Operator role (`sorter:operate`). HOME, sorting, camera selection, mock scenarios, and Gemini settings require that login. **STOP remains available without login.** State and camera-frame reads stay available.
 
-Public viewers see the dashboard and can press STOP without a login redirect. Operators sign in with Auth0 and need the SharkByte Operator role (`sorter:operate`). The operator password remains a backup. HOME, sorting, camera selection, mock scenarios, and Gemini settings require an operator. State and camera-frame reads stay available.
+On the public Funnel port, viewers still see the dashboard and can press STOP with no login redirect. Operators can sign in with Auth0, and the password remains a backup.
 
-In the Auth0 application, allow callback and logout URL `https://paul.tail0e5a35.ts.net/` and web origin `https://paul.tail0e5a35.ts.net`. Add the same three entries for any other Funnel hostname. The local dashboard does not use those URLs.
+Allow callback and logout URLs `http://127.0.0.1:4173/` and `https://paul.tail0e5a35.ts.net/`. Allow web origins `http://127.0.0.1:4173` and `https://paul.tail0e5a35.ts.net`. Add `http://127.0.0.1:4175/` when the demo uses that port.
 
 ### ESP32-S3 camera source
 

@@ -75,19 +75,22 @@ async function initializeAuth() {
     const user = await authClient.getUser();
     authIdentity.textContent = user?.name || user?.email || 'Operator';
     showGate('', true);
+  } else if (publicViewer) {
+    showGate('Sign in with Auth0 to control the sorter. Viewing and STOP need no login.');
   } else {
-    showGate(publicViewer
-      ? 'Sign in with Auth0 to control the sorter. Viewing and STOP need no login.'
-      : 'Sign in to control the sorter. STOP remains available.');
+    showGate('Sign in to start the demo. STOP remains available.');
+    await startLogin();
   }
 }
 
-authSignIn.addEventListener('click', async () => {
+async function startLogin() {
   if (!authClient) return;
   authSignIn.disabled = true;
   try { await authClient.loginWithRedirect(); }
   catch { authMessage.textContent = 'Sign in could not start. Try again.'; authSignIn.disabled = false; }
-});
+}
+
+authSignIn.addEventListener('click', () => startLogin());
 authSignOut.addEventListener('click', () => {
   if (authClient) authClient.logout({logoutParams: {returnTo: location.origin + '/'}});
 });
