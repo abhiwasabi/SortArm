@@ -42,3 +42,7 @@ The user chose four destinations in [issue #23](https://github.com/abhiwasabi/sh
 6. Post on the board when a merge changes an interface, schema, environment variable, or another person's work.
 
 SharkByte's event rules require the core project code, design, and assets to be created during the hackathon weekend. Open-source libraries and APIs are allowed.
+
+## Skills
+
+- [hosting-site-with-tailscale](.claude/skills/hosting-site-with-tailscale/SKILL.md): putting the dashboard online from your own laptop with Tailscale Funnel, including one-time setup, each run, checks and troubleshooting. Claude Code loads it automatically; other agents should read it before hosting.
