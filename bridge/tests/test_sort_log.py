@@ -41,15 +41,15 @@ class BridgeHookTests(unittest.TestCase):
         self.assertTrue(self.sort(prediction(confidence=.93)))
         self.now += 4.5
         self.arm.finish()
-        self.arm.emit('DONE', 'SORT PLASTIC')  # repeated DONE must not log or count twice
+        self.arm.emit('DONE', 'SORT RECYCLE')  # repeated DONE must not log or count twice
         self.assertEqual(len(self.log.events), 1)
         event = self.log.events[0]
-        self.assertEqual((event['outcome'], event['label'], event['bin']), ('DONE', 'Plastic bottle', 'PLASTIC'))
+        self.assertEqual((event['outcome'], event['label'], event['bin']), ('DONE', 'Plastic bottle', 'RECYCLE'))
         self.assertEqual(event['confidence'], .93)
         self.assertAlmostEqual(event['cycle_s'], 4.5)
         self.assertTrue(event['simulated'])
         self.assertEqual(event['sort_id'], self.bridge.recent_sorts[0]['id'])
-        self.assertEqual(self.bridge.counts['PLASTIC'], 1)
+        self.assertEqual(self.bridge.counts['RECYCLE'], 1)
 
     def test_null_confidence_is_kept(self):
         self.sort(prediction(confidence=None))
@@ -60,7 +60,7 @@ class BridgeHookTests(unittest.TestCase):
         self.assertTrue(self.sort())
         self.bridge.stop()
         self.assertEqual([e['outcome'] for e in self.log.events], ['STOPPED'])
-        self.assertEqual(self.bridge.counts['PLASTIC'], 0)
+        self.assertEqual(self.bridge.counts['RECYCLE'], 0)
         self.assertEqual(self.bridge.recent_sorts, [])
 
     def test_fault_logs_fault_with_detail_and_does_not_count(self):
@@ -70,7 +70,7 @@ class BridgeHookTests(unittest.TestCase):
         self.assertEqual(len(self.log.events), 1)
         self.assertEqual(self.log.events[0]['outcome'], 'FAULT')
         self.assertIn('did not reach', self.log.events[0]['detail'])
-        self.assertEqual(self.bridge.counts['PLASTIC'], 0)
+        self.assertEqual(self.bridge.counts['RECYCLE'], 0)
 
     def test_history_rows_keep_their_existing_fields(self):
         self.sort()
@@ -84,8 +84,8 @@ class BridgeHookTests(unittest.TestCase):
         self.bridge.sort_log = Broken()
         self.assertTrue(self.sort())
         self.arm.finish()
-        self.assertEqual(self.bridge.counts['PLASTIC'], 1)
-        self.assertTrue(self.sort(prediction(label='Metal can', bin='METAL')))
+        self.assertEqual(self.bridge.counts['RECYCLE'], 1)
+        self.assertTrue(self.sort(prediction(label='Metal can', bin='TRASH')))
         self.bridge.stop()
         self.assertEqual(self.arm.state, 'ERROR')
 
@@ -128,7 +128,7 @@ def wait_until(check, timeout=3.0):
 
 
 def event(n=0):
-    return dict(time=f't{n}', sort_id=str(n), label='Paper sheet', bin='PAPER', confidence=None,
+    return dict(time=f't{n}', sort_id=str(n), label='Paper sheet', bin='RECYCLE', confidence=None,
                 outcome='DONE', cycle_s=1.0, simulated=True, detail=None)
 
 
@@ -179,13 +179,13 @@ class SortLogTests(unittest.TestCase):
         bridge.camera_frame((b'frame', 'image/jpeg'))
         bridge.home()
         start = time.monotonic()
-        for label, bin_name in (('Paper sheet', 'PAPER'), ('Metal can', 'METAL')):
+        for label, bin_name in (('Paper sheet', 'RECYCLE'), ('Metal can', 'TRASH')):
             bridge.camera_frame((label.encode(), 'image/jpeg'))
             self.assertTrue(bridge.accept_prediction(bridge.begin_prediction(),
                                                      prediction(label=label, bin=bin_name)))
             arm.finish()
         self.assertLess(time.monotonic() - start, 0.5)  # outage never slowed sorting
-        self.assertEqual(bridge.counts['PAPER'] + bridge.counts['METAL'], 2)
+        self.assertEqual(bridge.counts['RECYCLE'] + bridge.counts['TRASH'], 2)
         self.assertTrue(wait_until(lambda: len(conn.rows) == 2))
         self.assertIsNotNone(log.last_error)
         log.close()
@@ -235,10 +235,10 @@ class ReadConn:
         from datetime import datetime, timezone
         t = datetime(2026, 11, 8, 1, 30, tzinfo=timezone.utc)
         self.queries, self.closed, self.no_aggregate = [], False, no_aggregate
-        self.window = [(t, 'PAPER', 'DONE', 2, 30.0, 2), (t, 'PAPER', 'STOPPED', 1, None, 0),
-                       (t, 'METAL', 'FAULT', 1, None, 0)]
+        self.window = [(t, 'RECYCLE', 'DONE', 2, 30.0, 2), (t, 'RECYCLE', 'STOPPED', 1, None, 0),
+                       (t, 'TRASH', 'FAULT', 1, None, 0)]
         self.totals = [('DONE', 5), ('STOPPED', 1), ('FAULT', 1)]
-        self.recent = [(t, 'Paper sheet', 'PAPER', 'DONE', 0.9, 15.0)]
+        self.recent = [(t, 'Paper sheet', 'RECYCLE', 'DONE', 0.9, 15.0)]
         self.other = 3
 
     def cursor(self):
@@ -265,7 +265,7 @@ class HistoryTests(unittest.TestCase):
             self.assertIn('simulated', sql)
             self.assertIn(True, params)
         self.assertEqual(data['totals'], {'DONE': 5, 'STOPPED': 1, 'FAULT': 1})
-        paper = next(b for b in data['per_bin'] if b['bin'] == 'PAPER')
+        paper = next(b for b in data['per_bin'] if b['bin'] == 'RECYCLE')
         self.assertEqual((paper['done'], paper['stopped'], paper['avg_cycle_s']), (2, 1, 15.0))
         self.assertEqual(data['per_minute'][0]['done'], 2)
         self.assertEqual(data['per_minute'][0]['fault'], 1)

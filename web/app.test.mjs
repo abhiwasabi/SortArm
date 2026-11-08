@@ -10,9 +10,9 @@ const source = (await readFile(new URL('./app.mjs', import.meta.url), 'utf8'))
 const cameraModule = (await readFile(new URL('./cameras.mjs', import.meta.url), 'utf8'))
   .replace(/^import .*;\r?\n/, '');
 const geminiModule = await readFile(new URL('./gemini.mjs', import.meta.url), 'utf8');
-const sample = { label: 'Plastic bottle', confidence: .94, bin: 'PLASTIC',
+const sample = { label: 'Plastic bottle', confidence: .94, bin: 'RECYCLE',
   connected: true, arm_state: 'BUSY',
-  counts: { PAPER: 3, PLASTIC: 4, METAL: 2, ORGANIC: 1 } };
+  counts: { RECYCLE: 7, TRASH: 3 } };
 
 function harness(search = '', { modules = false, auth0 = false } = {}) {
   const elements = new Map();
@@ -100,7 +100,7 @@ test('public viewers cannot operate controls; public operators and local users r
       assert.equal(h.element('operatorLoginForm').hidden, false);
       for (const command of ['bridgeCommand("/api/home")',
         'bridgeCommand("/api/sorting", { enabled: true })',
-        'bridgeCommand("/api/sort", { bin: "PAPER" })',
+        'bridgeCommand("/api/sort", { bin: "RECYCLE" })',
         'bridgeCommand("/api/mock", { scenario: "paper" })',
         'applyCameraSource()', 'stopCamera()']) await h.run(command);
       assert.equal(h.requests.length, 1);
@@ -189,7 +189,7 @@ test('logout returns to viewing mode and refreshes state when the response has n
 
 test('401 from each main control revokes operator access and immediately refreshes state', async () => {
   for (const command of ['bridgeCommand("/api/home")',
-    'bridgeCommand("/api/sort", { bin: "PAPER" })',
+    'bridgeCommand("/api/sort", { bin: "RECYCLE" })',
     'bridgeCommand("/api/sorting", { enabled: true })',
     'bridgeCommand("/api/mock", { scenario: "paper" })',
     'applyCameraSource()', 'stopCamera()']) {
@@ -427,10 +427,10 @@ test('manual sort is enabled only with an online, connected, ready, paused bridg
     await h.respond(0, scenario.state);
     if (scenario.setup) h.run(scenario.setup + '; render()');
     const buttons = h.element('manualSortButtons').children;
-    assert.equal(buttons.length, 4, scenario.name);
+    assert.equal(buttons.length, 2, scenario.name);
     assert.equal(buttons.every(button => !button.disabled), scenario.enabled, scenario.name);
     if (!scenario.enabled) {
-      await h.run('bridgeCommand("/api/sort", { bin: "PAPER" })');
+      await h.run('bridgeCommand("/api/sort", { bin: "RECYCLE" })');
       assert.equal(h.requests.length, 1, scenario.name + ' must not send a command');
     }
   }
@@ -439,28 +439,28 @@ test('manual sort is enabled only with an online, connected, ready, paused bridg
 test('manual buttons follow state bins and post through the shared helper without changing counts', async () => {
   const h = harness();
   const ready = { ...sample, arm_state: 'READY', sorting_enabled: false,
-    camera_source: 'off', vision_ready: false, bins: ['METAL', 'PAPER'] };
+    camera_source: 'off', vision_ready: false, bins: ['TRASH', 'RECYCLE'] };
   await h.respond(0, ready);
   const buttons = h.element('manualSortButtons').children;
-  assert.deepEqual(buttons.map(button => button.dataset.bin), ['METAL', 'PAPER']);
+  assert.deepEqual(buttons.map(button => button.dataset.bin), ['TRASH', 'RECYCLE']);
   assert.equal(h.element('manualSortCard').hidden, false);
   const command = buttons[1].listeners.click();
   assert.equal(h.requests[1].url, '/api/sort');
   assert.equal(h.requests[1].options.method, 'POST');
-  assert.deepEqual(JSON.parse(h.requests[1].options.body), { bin: 'PAPER' });
+  assert.deepEqual(JSON.parse(h.requests[1].options.body), { bin: 'RECYCLE' });
   assert.ok(buttons.every(button => button.disabled));
   assert.equal(h.element('homeButton').disabled, true);
   assert.equal(h.element('sortingButton').disabled, true);
-  await h.respond(1, { accepted: true, state: { ...ready, arm_state: 'BUSY', arm_detail: 'SORT PAPER' } });
+  await h.respond(1, { accepted: true, state: { ...ready, arm_state: 'BUSY', arm_detail: 'SORT RECYCLE' } });
   await command;
-  assert.equal(h.element('paperCount').textContent, String(sample.counts.PAPER));
-  assert.match(h.element('notice').textContent, /Manual sort requested for Paper bin/);
-  assert.equal(h.element('armDescription').textContent, 'Moving: SORT PAPER');
+  assert.equal(h.element('recycleCount').textContent, String(sample.counts.RECYCLE));
+  assert.match(h.element('notice').textContent, /Manual sort requested for Recycle bin/);
+  assert.equal(h.element('armDescription').textContent, 'Moving: SORT RECYCLE');
   assert.equal(h.element('manualSortButtons').children[0], buttons[0]);
 });
 
 test('home, manual sort, and automatic sorting show the 409 response error and state', async () => {
-  for (const [path, body] of [['/api/home', {}], ['/api/sort', { bin: 'PAPER' }],
+  for (const [path, body] of [['/api/home', {}], ['/api/sort', { bin: 'RECYCLE' }],
     ['/api/sorting', { enabled: true }]]) {
     const h = harness();
     const ready = { ...sample, arm_state: 'READY', sorting_enabled: false };
@@ -490,7 +490,7 @@ test('STOP uses an eight-second request timeout and blocks motion through confir
   for (const id of ['homeButton', 'sortingButton']) assert.equal(h.element(id).disabled, true);
   for (const command of ['bridgeCommand("/api/home")',
     'bridgeCommand("/api/sorting", { enabled: true })',
-    'bridgeCommand("/api/sort", { bin: "PAPER" })']) await h.run(command);
+    'bridgeCommand("/api/sort", { bin: "RECYCLE" })']) await h.run(command);
   assert.equal(h.requests.length, 2);
   const poll = h.run('pollState()');
   await h.respond(2, { ...ready, arm_state: 'ERROR', arm_detail: 'STOP requested' });
@@ -502,7 +502,7 @@ test('STOP uses an eight-second request timeout and blocks motion through confir
 test('arm details remain visible while disconnected, moving, and in error', async () => {
   for (const [state, expected] of [
     [{ connected: false, arm_state: 'ERROR', arm_detail: 'connection lost: bus timed out' }, 'connection lost: bus timed out'],
-    [{ connected: true, arm_state: 'BUSY', arm_detail: 'SORT PLASTIC' }, 'Moving: SORT PLASTIC'],
+    [{ connected: true, arm_state: 'BUSY', arm_detail: 'SORT RECYCLE' }, 'Moving: SORT RECYCLE'],
     [{ connected: true, arm_state: 'ERROR', arm_detail: 'Joint limit exceeded.' }, 'Joint limit exceeded. Press Home arm to recover.'],
     [{ connected: true, arm_state: 'ERROR', arm_detail: 'stopped; arm not responding' },
       'stopped; arm not responding. Use the physical power cutoff if it is still moving.']
@@ -518,7 +518,7 @@ test('sample preview hides the manual sort card and cannot dispatch a manual sor
   assert.equal(h.element('bridgeControls').hidden, true);
   assert.equal(h.element('manualSortCard').hidden, true);
   assert.ok(h.element('manualSortButtons').children.every(button => button.disabled));
-  await h.run('bridgeCommand("/api/sort", { bin: "PAPER" })');
+  await h.run('bridgeCommand("/api/sort", { bin: "RECYCLE" })');
   assert.equal(h.requests.length, 0);
 });
 
@@ -664,7 +664,7 @@ test('sample preview hides camera source controls and cannot change the server',
   assert.equal(h.requests.length, 0);
 });
 
-test('renders four material totals and every route even without a confidence score', async () => {
+test('renders both bin totals and every route even without a confidence score', async () => {
   const h = harness();
   await h.respond(0, { ...sample, confidence: null });
   h.element('cameraFrame').listeners.load();
@@ -672,12 +672,9 @@ test('renders four material totals and every route even without a confidence sco
     assert.equal(h.element(bin.toLowerCase() + 'Count').textContent, String(count));
   }
   assert.equal(h.element('confidenceValue').textContent, '—');
-  const labels = {
-    PAPER: 'Paper bin', PLASTIC: 'Plastic bin',
-    METAL: 'Metal bin', ORGANIC: 'Organic bin'
-  };
-  assert.equal(h.element('binDecision').textContent, labels.PLASTIC);
-  for (const [index, bin] of ['PAPER', 'METAL', 'ORGANIC'].entries()) {
+  const labels = { RECYCLE: 'Recycle bin', TRASH: 'Trash bin' };
+  assert.equal(h.element('binDecision').textContent, labels.RECYCLE);
+  for (const [index, bin] of ['TRASH'].entries()) {
     const poll = h.run('pollState()');
     await h.respond(index + 1, { ...sample, bin, confidence: null });
     await poll;
@@ -689,10 +686,10 @@ test('renders four material totals and every route even without a confidence sco
 test('history shows confirmed sorts once across repeated polls and prediction changes', async () => {
   const h = harness();
   const completed = [
-    { id: 'sort-4', label: 'Paper flyer', bin: 'PAPER', completed_at: '2026-11-07T05:34:00Z' },
-    { id: 'sort-3', label: 'Plastic bottle', bin: 'PLASTIC', completed_at: '2026-11-07T05:33:00Z' },
-    { id: 'sort-2', label: 'Metal can', bin: 'METAL', completed_at: '2026-11-07T05:32:00Z' },
-    { id: 'sort-1', label: 'Banana peel', bin: 'ORGANIC', completed_at: '2026-11-07T05:31:00Z' }
+    { id: 'sort-4', label: 'Paper flyer', bin: 'RECYCLE', completed_at: '2026-11-07T05:34:00Z' },
+    { id: 'sort-3', label: 'Plastic bottle', bin: 'RECYCLE', completed_at: '2026-11-07T05:33:00Z' },
+    { id: 'sort-2', label: 'Metal can', bin: 'TRASH', completed_at: '2026-11-07T05:32:00Z' },
+    { id: 'sort-1', label: 'Banana peel', bin: 'TRASH', completed_at: '2026-11-07T05:31:00Z' }
   ];
   const state = { ...sample, recent_sorts: completed };
   await h.respond(0, state);
@@ -701,28 +698,28 @@ test('history shows confirmed sorts once across repeated polls and prediction ch
   assert.equal(h.element('sortToast').textContent ?? '', '');
   assert.equal(list.children.length, 4);
   assert.deepEqual(list.children.map(row => row.children[2].textContent),
-    ['Paper bin', 'Plastic bin', 'Metal bin', 'Organic bin']);
+    ['Recycle bin', 'Recycle bin', 'Trash bin', 'Trash bin']);
   assert.deepEqual(list.children.map(row => row.children[0].dataset.bin),
-    ['PAPER', 'PLASTIC', 'METAL', 'ORGANIC']);
+    ['RECYCLE', 'RECYCLE', 'TRASH', 'TRASH']);
   const firstRow = list.children[0];
 
   const repeatedPoll = h.run('pollState()');
-  await h.respond(1, { ...state, label: 'Banana peel', bin: 'ORGANIC' });
+  await h.respond(1, { ...state, label: 'Banana peel', bin: 'TRASH' });
   await repeatedPoll;
   assert.equal(list.children.length, 4);
   assert.equal(list.children[0], firstRow);
 
-  const next = { id: 'sort-5', label: 'Newspaper', bin: 'PAPER',
+  const next = { id: 'sort-5', label: 'Newspaper', bin: 'RECYCLE',
     completed_at: '2026-11-07T05:35:00Z' };
   const nextPoll = h.run('pollState()');
   await h.respond(2, { ...state, recent_sorts: [next, ...completed] });
   await nextPoll;
   assert.equal(list.children.length, 5);
   assert.equal(list.children[0].children[1].textContent, 'Newspaper');
-  assert.match(h.element('historyAnnouncement').textContent, /Newspaper was sorted to Paper/);
+  assert.match(h.element('historyAnnouncement').textContent, /Newspaper was sorted to Recycle/);
   assert.equal(h.element('sortToast').hidden, false);
-  assert.equal(h.element('sortToast').dataset.bin, 'PAPER');
-  assert.equal(h.element('sortToast').textContent, 'Newspaper was sorted to Paper');
+  assert.equal(h.element('sortToast').dataset.bin, 'RECYCLE');
+  assert.equal(h.element('sortToast').textContent, 'Newspaper was sorted to Recycle');
 });
 
 test('history distinguishes absent records from API loss', async () => {

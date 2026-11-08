@@ -40,7 +40,7 @@ The laptop bridge serves `web/` at the same origin as these endpoints. POST bodi
 | `GET /api/gemini` | No body | `{configured: boolean, model: string or null}`; never returns the API key | No |
 | `POST /api/stop` | `{}` | `200 {accepted: true, state}` or `409 {accepted: false, state}`. Request acceptance alone does not confirm a stop; the dashboard waits for a subsequent connected `ERROR` state | Stops motion; does not start a new move |
 | `POST /api/home` | `{}` | `200 {accepted: true, state}`; rejection: `409 {accepted: false, error, state}` with the arm's reason | Yes: starts the Home routine; sorting stays paused |
-| `POST /api/sort` | `{bin: "PAPER"}` using a bin in `state.bins` | `200 {accepted: true, state}`; arm rejection, or the previous sort still finishing: `409 {accepted: false, error, state}`; invalid bin or automatic sorting enabled: `400 {error}`. No camera or vision required | Yes: starts a manual pick-and-drop routine |
+| `POST /api/sort` | `{bin: "RECYCLE"}` using a bin in `state.bins` | `200 {accepted: true, state}`; arm rejection, or the previous sort still finishing: `409 {accepted: false, error, state}`; invalid bin or automatic sorting enabled: `400 {error}`. No camera or vision required | Yes: starts a manual pick-and-drop routine |
 | `POST /api/sorting` | `{enabled: true}` or `{enabled: false}` | `200 {accepted: true, state}`; invalid or unavailable start: `400 {error}` | Enabling allows future automatic sorts; pausing does not itself issue a movement |
 | `POST /api/camera` | `{source: "usb", index: 0, device_id: "optional device ID"}`, `{source: "esp32", url: "http://192.168.1.50/capture"}`, `{source: "mock"}`, or `{source: "off"}` | `200 {accepted: true, state}`; invalid/unavailable source: `400 {error}` | No direct move; pauses automatic sorting and clears prior camera/prediction data |
 | `POST /api/mock` | `{scenario: "empty"}`; also `bottle`, `paper`, `metal`, `organic`, `unknown`, or `camera-offline` | `200 {accepted: true, state}`; invalid scenario or inactive mock camera: `400 {error}` | No direct move; a supported sample can trigger a sort if automatic sorting is enabled |
@@ -61,31 +61,31 @@ Example state:
   "bin": "PLASTIC",
   "arm_state": "READY",
   "connected": true,
-  "bins": ["PAPER", "PLASTIC", "METAL", "ORGANIC"],
+  "bins": ["RECYCLE", "TRASH"],
   "sorting_enabled": false,
   "arm_detail": "Ready",
-  "counts": {"PAPER": 4, "PLASTIC": 3, "METAL": 1, "ORGANIC": 2},
+  "counts": {"RECYCLE": 7, "TRASH": 3},
   "prediction_at": "2026-11-07T05:30:00Z",
   "recent_sorts": [
     {"id": "sort-10", "label": "plastic bottle", "bin": "PLASTIC", "completed_at": "2026-11-07T05:29:52Z"},
-    {"id": "sort-9", "label": "paper card", "bin": "PAPER", "completed_at": "2026-11-07T05:28:11Z"},
+    {"id": "sort-9", "label": "paper card", "bin": "RECYCLE", "completed_at": "2026-11-07T05:28:11Z"},
     {"id": "sort-8", "label": "metal can", "bin": "METAL", "completed_at": "2026-11-07T05:27:04Z"},
     {"id": "sort-7", "label": "dry leaf", "bin": "ORGANIC", "completed_at": "2026-11-07T05:26:22Z"}
   ]
 }
 ```
 
-The supported `bin` values and `counts` keys are `PAPER`, `PLASTIC`, `METAL`, and `ORGANIC`. Unknown items should use `label: "UNKNOWN"` and `bin: null`. A valid backend bin decision can be displayed with `confidence: null`; the dashboard shows no percentage in that case. The backend must make the uncertainty and safety decision before dispatching a SORT command. `prediction_at` is an optional ISO 8601 time for the latest *prediction*. A named item, its Swarms check, and its bin stay on screen for at least five seconds after detection. After that, the card stays until the bridge reports the pickup empty or replaces it with another item. An unknown result older than eight seconds is hidden. Without `prediction_at`, the dashboard labels the value **Latest response**, never a live detection. It clears predictions when the API cannot be reached.
+The supported `bin` values and `counts` keys on this branch are `RECYCLE` and `TRASH`. Unknown items should use `label: "UNKNOWN"` and `bin: null`. A valid backend bin decision can be displayed with `confidence: null`; the dashboard shows no percentage in that case. The backend must make the uncertainty and safety decision before dispatching a SORT command. `prediction_at` is an optional ISO 8601 time for the latest *prediction*. A named item, its Swarms check, and its bin stay on screen for at least five seconds after detection. After that, the card stays until the bridge reports the pickup empty or replaces it with another item. An unknown result older than eight seconds is hidden. Without `prediction_at`, the dashboard labels the value **Latest response**, never a live detection. It clears predictions when the API cannot be reached.
 
 `recent_sorts` is an optional, bounded list of completed sorts, newest first. Each entry has a stable `id`, the accepted item's `label`, one of the four destination `bin` values, and an ISO 8601 `completed_at` time. The backend should capture the label and bin when it accepts a sort, then append one entry when that command reports DONE, alongside incrementing the matching count. Predictions, rejected commands, STOP, HOME, and failed moves must not create history entries. If the field is omitted, the dashboard shows history as unavailable.
 
 If the camera endpoint fails or no new frame loads for several seconds, the dashboard hides the last prediction and route. A successful Stop request means only that the request reached the backend; the dashboard waits for a controller state update and warns if none arrives.
 
-The dashboard never increments counts itself. The backend should update counts only after the arm controller reports DONE. The physical arm also needs four taught drop positions, `above_paper`, `above_plastic`, `above_metal`, and `above_organic`, before it can route to all four bins. For live use, open the backend's dashboard URL without `?demo=1`; serving this folder on a separate port will show the API as offline unless the backend also serves the API on that origin. The Settings view shows the API and arm connection status, while the camera connection status appears below Pickup area.
+The dashboard never increments counts itself. The backend should update counts only after the arm controller reports DONE. The physical arm also needs taught drop positions, `above_recycle` and `above_trash`, before it can route to both bins. For live use, open the backend's dashboard URL without `?demo=1`; serving this folder on a separate port will show the API as offline unless the backend also serves the API on that origin. The Settings view shows the API and arm connection status, while the camera connection status appears below Pickup area.
 
-**Manual sort (moves the arm)** appears below Home and Sorting in the bridge controls. It creates one button per `state.bins` entry, falling back to `PAPER`, `PLASTIC`, `METAL`, and `ORGANIC` if that field is missing. Buttons are enabled only while the API is online, the bridge is available, the controller is connected and `READY`, automatic sorting is paused, and neither a control command nor STOP confirmation is pending. Camera and Gemini availability do not gate manual sorting. A completed manual sort is recorded by the bridge with label `Manual`; rejected or unfinished commands do not change counts or history. Home, Sorting, and manual controls are hidden and cannot send commands in `?demo=1` sample preview.
+**Manual sort (moves the arm)** appears below Home and Sorting in the bridge controls. It creates one button per `state.bins` entry, falling back to `RECYCLE` and `TRASH` if that field is missing. Buttons are enabled only while the API is online, the bridge is available, the controller is connected and `READY`, automatic sorting is paused, and neither a control command nor STOP confirmation is pending. Camera and Gemini availability do not gate manual sorting. A completed manual sort is recorded by the bridge with label `Manual`; rejected or unfinished commands do not change counts or history. Home, Sorting, and manual controls are hidden and cannot send commands in `?demo=1` sample preview.
 
-Overview shows the camera, arm status, four bin totals, and recent completed sorts together. Their sidebar links open focused views of the same live components; returning to Overview restores them to the combined layout.
+Overview shows the camera, arm status, both bin totals, and recent completed sorts together. Their sidebar links open focused views of the same live components; returning to Overview restores them to the combined layout.
 
 In the backend-served dashboard, **Settings → Choose a camera** selects the simulated camera, laptop/USB camera, or an ESP32-S3 JPEG snapshot URL. The ESP32 option expects a local URL such as `http://192.168.1.50/capture`, after the board has been programmed to serve snapshots on the same Wi-Fi network. See [XIAO ESP32-S3 camera setup](../docs/xiao-esp32s3-camera.md). Camera selection calls `POST /api/camera` and clears the prior frame and prediction. With a simulated arm, recognition and sorting resume automatically when vision is ready; physical-arm mode still needs an explicit Start sorting command. The API state includes `camera_source`, `camera_url`, `camera_error`, and `vision_ready`. The separate `?demo=1` sample preview does not operate camera controls.
 

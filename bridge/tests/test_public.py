@@ -108,7 +108,7 @@ class PublicHttpTests(unittest.TestCase):
     def test_stop_is_open_and_interrupts_the_shared_arm(self):
         self.bridge.home()
         self.bridge.set_sorting(False)  # a simulated HOME re-arms automatic sorting
-        self.bridge.manual_sort('PAPER')
+        self.bridge.manual_sort('RECYCLE')
         self.assertEqual(self.arm.state, 'BUSY')
         status, result, _ = self.request('/api/stop', {})
         self.assertEqual(status, 200)
@@ -121,7 +121,7 @@ class PublicHttpTests(unittest.TestCase):
 
     def test_every_other_control_requires_a_session(self):
         before = self.bridge.snapshot()
-        controls = (('/api/home', {}), ('/api/sort', {'bin': 'PAPER'}),
+        controls = (('/api/home', {}), ('/api/sort', {'bin': 'RECYCLE'}),
                     ('/api/sorting', {'enabled': True}), ('/api/camera', {'source': 'usb'}),
                     ('/api/mock', {'scenario': 'paper'}), ('/api/gemini', {'key': 'unused'}),
                     ('/api/cameras', None), ('/api/unknown', {}))
@@ -195,16 +195,16 @@ class PublicHttpTests(unittest.TestCase):
         # A simulated HOME re-arms automatic sorting; pausing it is also operator-only.
         status, result, _ = self.request('/api/sorting', {'enabled': False}, headers)
         self.assertEqual(status, 200)
-        status, result, _ = self.request('/api/sort', {'bin': 'METAL'}, headers)
+        status, result, _ = self.request('/api/sort', {'bin': 'TRASH'}, headers)
         self.assertEqual(status, 200)
         self.assertTrue(result['accepted'])
         self.assertTrue(result['state']['operator'])
-        self.assertEqual(self.arm.commands, ['METAL'])
+        self.assertEqual(self.arm.commands, ['TRASH'])
         self.arm.finish()
         status, state, _ = self.request('/api/state', headers=headers)
         self.assertEqual(status, 200)
         self.assertTrue(state['operator'])
-        self.assertEqual(state['counts']['METAL'], 1)
+        self.assertEqual(state['counts']['TRASH'], 1)
 
     def test_login_allows_other_operator_controls(self):
         headers = self.login()
@@ -317,7 +317,7 @@ class PublicHttpTests(unittest.TestCase):
     def test_local_control_is_password_free_with_local_state_flags(self):
         for path, body in (('/api/state', None), ('/api/home', {}),
                            ('/api/sorting', {'enabled': False}),
-                           ('/api/sort', {'bin': 'ORGANIC'}), ('/api/stop', {})):
+                           ('/api/sort', {'bin': 'TRASH'}), ('/api/stop', {})):
             with self.subTest(path=path):
                 status, result, headers = self.request(path, body, local=True)
                 self.assertEqual(status, 200)

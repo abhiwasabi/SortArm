@@ -7,7 +7,7 @@ from bridge.swarms import review_pickup
 
 
 def prediction(**changes):
-    base = dict(label='Cracker Jack bag', bin='PLASTIC', confidence=None,
+    base = dict(label='Cracker Jack bag', bin='RECYCLE', confidence=None,
                 item_present=True, needs_review=False)
     base.update(changes)
     return base
@@ -24,13 +24,13 @@ class SwarmsPickupTests(unittest.TestCase):
         seen = []
         with patch.dict('os.environ', {}, clear=True):
             result = review_pickup(prediction(), opener=lambda *args, **kwargs: seen.append(args))
-        self.assertEqual(result['bin'], 'PLASTIC')
+        self.assertEqual(result['bin'], 'RECYCLE')
         self.assertFalse(result['needs_review'])
         self.assertEqual(seen, [])
 
     def test_unsafe_item_is_held(self):
         with patch('urllib.request.urlopen', return_value=response('{"safe": false, "reason": "broken glass"}')):
-            result = review_pickup(prediction(label='broken glass jar', bin='PLASTIC'), key='test-key')
+            result = review_pickup(prediction(label='broken glass jar', bin='RECYCLE'), key='test-key')
         self.assertIsNone(result['bin'])
         self.assertTrue(result['needs_review'])
         self.assertEqual(result['label'], 'broken glass jar')
@@ -39,7 +39,7 @@ class SwarmsPickupTests(unittest.TestCase):
     def test_safe_item_keeps_its_bin(self):
         with patch('urllib.request.urlopen', return_value=response('{"safe": true}')) as request:
             result = review_pickup(prediction(), key='test-key')
-        self.assertEqual((result['bin'], result['needs_review']), ('PLASTIC', False))
+        self.assertEqual((result['bin'], result['needs_review']), ('RECYCLE', False))
         self.assertNotIn('approve_reason', result)
         sent = request.call_args.args[0]
         self.assertNotIn('test-key', sent.full_url)
@@ -52,7 +52,7 @@ class SwarmsPickupTests(unittest.TestCase):
     def test_safe_item_keeps_its_bin_and_the_approval_reason(self):
         with patch('urllib.request.urlopen', return_value=response('{"safe": true, "reason": "it is a dry snack bag"}')):
             result = review_pickup(prediction(), key='test-key')
-        self.assertEqual(result['bin'], 'PLASTIC')
+        self.assertEqual(result['bin'], 'RECYCLE')
         self.assertFalse(result['needs_review'])
         self.assertEqual(result['approve_reason'], 'it is a dry snack bag')
 
@@ -65,13 +65,13 @@ class SwarmsPickupTests(unittest.TestCase):
         for body in cases:
             with patch('urllib.request.urlopen', return_value=body):
                 result = review_pickup(prediction(), key='test-key')
-            self.assertEqual(result['bin'], 'PLASTIC', body)
+            self.assertEqual(result['bin'], 'RECYCLE', body)
 
         def explode(*args, **kwargs):
             raise TimeoutError('slow')
 
         result = review_pickup(prediction(), key='test-key', opener=explode)
-        self.assertEqual(result['bin'], 'PLASTIC')
+        self.assertEqual(result['bin'], 'RECYCLE')
 
     def test_empty_and_unknown_skip_the_call(self):
         seen = []

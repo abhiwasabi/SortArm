@@ -5,7 +5,7 @@ import threading
 import time
 import uuid
 
-BINS = ('PAPER', 'PLASTIC', 'METAL', 'ORGANIC')
+BINS = ('RECYCLE', 'TRASH')
 
 
 def validate_prediction(raw):
@@ -205,7 +205,7 @@ class Bridge:
             if enabled and not self.vision_ready:
                 raise ValueError('Gemini is not configured for this camera source; set GEMINI_API_KEY and GEMINI_MODEL')
             if enabled and set(self.allowed_bins) != set(BINS):
-                raise ValueError('Arm controller must support PAPER, PLASTIC, METAL, ORGANIC before sorting')
+                raise ValueError('Arm controller must support RECYCLE and TRASH before sorting')
             if enabled and (self.arm.state != 'READY' or not self.arm.connected or not self.fresh_frame()):
                 raise ValueError('Start requires a homed, connected arm and a current camera frame')
             self.enabled = enabled

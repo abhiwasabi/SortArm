@@ -30,7 +30,7 @@ The current ownership split is recorded here, in [PLAN.md](PLAN.md), and in the 
 
 ## Current material-bin contract
 
-The user chose four destinations in [issue #23](https://github.com/abhiwasabi/sharkbyte-2026/issues/23): `PAPER`, `PLASTIC`, `METAL`, and `ORGANIC`. Use exactly these uppercase names for predictor and bridge bin decisions, `/api/state.counts` keys, completed-sort history bins, and arm SORT destinations. Unknown or unsupported items have no route (`null`). The older `RECYCLE` and `TRASH` references in issues and branches are superseded. Four physical bin positions and taught `above_<bin>` arm poses must be verified before claiming the hardware sorts all four materials. See [PLAN.md](PLAN.md) for the updated workflow.
+This trial branch, [issue #66](https://github.com/abhiwasabi/sharkbyte-2026/issues/66), uses two destinations: `RECYCLE` and `TRASH`. Use exactly these uppercase names for predictor and bridge bin decisions, `/api/state.counts` keys, completed-sort history bins, and arm SORT destinations. Paper, plastic packaging, and metal cans are `RECYCLE`. Food scraps and other ordinary waste are `TRASH`. Unknown or unsupported items have no route (`null`). Taught poses are `above_recycle` and `above_trash`. The four-bin contract remains on `main` until this trial is accepted. See [docs/ARM_SETUP.md](docs/ARM_SETUP.md) for the physical arm steps.
 
 ## Git workflow
 

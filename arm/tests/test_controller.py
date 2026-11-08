@@ -79,7 +79,7 @@ def wait_for(predicate, timeout: float = 3.0) -> bool:
 def test_starts_in_error_and_rejects_sort_until_homed():
     arm, backend, states = make_arm()
     assert arm.state is ArmState.ERROR
-    assert not arm.sort("PAPER")
+    assert not arm.sort("RECYCLE")
     assert "HOME" in arm.last_rejection
     assert backend.writes == []  # rejected commands never move the arm
     assert states == []
@@ -95,7 +95,7 @@ def test_home_reports_busy_done_ready_and_opens_gripper():
     assert position["gripper"] == OPEN
 
 
-@pytest.mark.parametrize("bin_name", ["PAPER", "PLASTIC", "METAL", "ORGANIC", "paper"])
+@pytest.mark.parametrize("bin_name", ["RECYCLE", "TRASH", "recycle"])
 def test_sort_runs_full_sequence_and_returns_home(bin_name):
     arm, backend, states = homed_arm()
     assert arm.sort(bin_name)
@@ -110,14 +110,14 @@ def test_sort_runs_full_sequence_and_returns_home(bin_name):
 
 def test_sort_plan_order():
     arm, _, _ = make_arm()
-    poses_and_grips = [step for step in arm.sort_plan("METAL") if step[0] != "pause"]
+    poses_and_grips = [step for step in arm.sort_plan("TRASH") if step[0] != "pause"]
     assert poses_and_grips == [
         ("gripper", "open"),
         ("pose", "above_pick"),
         ("pose", "pick"),
         ("gripper", "closed"),
         ("pose", "above_pick"),
-        ("pose", "above_metal"),
+        ("pose", "above_trash"),
         ("gripper", "open"),
         ("pose", "home"),
     ]
@@ -144,9 +144,9 @@ def test_home_and_sort_return_immediately():
 
 def test_commands_while_busy_are_rejected():
     arm, _, _ = homed_arm(fast_config(speed_deg_s=50.0))
-    assert arm.sort("PAPER")
+    assert arm.sort("RECYCLE")
     assert arm.state is ArmState.BUSY
-    assert not arm.sort("METAL")
+    assert not arm.sort("TRASH")
     assert not arm.home()
     arm.stop()
     assert arm.wait_idle(2)
@@ -166,16 +166,16 @@ def test_every_carry_write_commands_closed_when_gripper_is_stalled():
     # between the grasp and the release must still say "closed", or the grip loosens.
     arm, backend, _ = homed_arm(fast_config(speed_deg_s=500.0))
     backend.stalled.add("gripper")
-    assert arm.sort("PAPER")
+    assert arm.sort("RECYCLE")
     assert arm.wait_idle(3)
-    grasp, release = grasp_and_release_indexes(backend.writes, "above_paper")
+    grasp, release = grasp_and_release_indexes(backend.writes, "above_recycle")
     assert all(w["gripper"] == CLOSED for w in backend.writes[grasp:release])
 
 
 def test_stop_while_carrying_keeps_the_gripper_closed():
     arm, backend, _ = homed_arm(fast_config(speed_deg_s=40.0))
     backend.stalled.add("gripper")  # stalled at "open": commanding the present value would let go
-    assert arm.sort("PAPER")
+    assert arm.sort("RECYCLE")
     assert wait_for(lambda: any(at(w, "pick") and w["gripper"] == CLOSED for w in backend.writes))
     time.sleep(0.3)  # carrying back up toward above_pick
     assert arm.stop()
@@ -195,7 +195,7 @@ def test_stop_while_carrying_keeps_the_gripper_closed():
 
 def test_stop_mid_move_holds_position_and_requires_home():
     arm, backend, states = homed_arm(fast_config(speed_deg_s=50.0))
-    assert arm.sort("METAL")
+    assert arm.sort("TRASH")
     time.sleep(0.2)
 
     assert arm.stop()
@@ -203,13 +203,13 @@ def test_stop_mid_move_holds_position_and_requires_home():
     assert arm.detail == "stopped"
     held = backend.read()
     assert backend.writes[-1] == held
-    assert not at(held, "home") and not at(held, "above_metal")
+    assert not at(held, "home") and not at(held, "above_trash")
 
     writes_after_stop = len(backend.writes)
     time.sleep(0.1)
     assert len(backend.writes) == writes_after_stop
 
-    assert not arm.sort("METAL")
+    assert not arm.sort("TRASH")
     assert arm.home() and arm.wait_idle(5)
     assert arm.state is ArmState.READY
 
@@ -222,7 +222,7 @@ def test_stop_while_idle_enters_error():
     assert arm.wait_idle(1)
     assert states == [ArmState.ERROR]
     assert len(backend.writes) == writes_before
-    assert not arm.sort("PAPER")
+    assert not arm.sort("RECYCLE")
     assert arm.stop() and arm.wait_idle(1)
     assert states == [ArmState.ERROR]  # a second STOP reports nothing new
 
@@ -234,7 +234,7 @@ def test_stop_racing_a_new_command_always_ends_in_error():
 
         def do_sort():
             barrier.wait()
-            arm.sort("PAPER")
+            arm.sort("RECYCLE")
 
         sorter = threading.Thread(target=do_sort, daemon=True)
         sorter.start()
@@ -251,7 +251,7 @@ def test_stop_near_the_end_of_a_command_always_ends_in_error():
     for _ in range(100):
         arm, _, _ = homed_arm()
         done_before = arm.last_done
-        assert arm.sort("METAL")
+        assert arm.sort("TRASH")
         time.sleep(rng.uniform(0.0, 0.02))
         arm.stop()
         assert arm.state is ArmState.ERROR  # even if the sort had already finished
@@ -269,10 +269,10 @@ def test_each_completed_command_is_reported_once():
     done: list[str] = []
     arm.on_state(lambda state, detail: done.append(detail) if state is ArmState.DONE else None)
     seq_after_home = arm.last_done[0]
-    assert arm.sort("PAPER") and arm.wait_idle(2)
-    assert arm.sort("METAL") and arm.wait_idle(2)
-    assert done == ["SORT PAPER", "SORT METAL"]
-    assert arm.last_done == (seq_after_home + 2, "SORT METAL")
+    assert arm.sort("RECYCLE") and arm.wait_idle(2)
+    assert arm.sort("TRASH") and arm.wait_idle(2)
+    assert done == ["SORT RECYCLE", "SORT TRASH"]
+    assert arm.last_done == (seq_after_home + 2, "SORT TRASH")
 
 
 def test_stopped_sort_is_not_reported_done():
@@ -280,7 +280,7 @@ def test_stopped_sort_is_not_reported_done():
     before = arm.last_done
     done: list[str] = []
     arm.on_state(lambda state, detail: done.append(detail) if state is ArmState.DONE else None)
-    assert arm.sort("PAPER")
+    assert arm.sort("RECYCLE")
     time.sleep(0.1)
     arm.stop()
     assert arm.wait_idle(2)
@@ -300,20 +300,20 @@ def test_listener_can_chain_the_next_sort():
         if state is ArmState.DONE:
             done.append(detail)
         if state is ArmState.READY and not accepted:
-            accepted.append(arm.sort("METAL"))
+            accepted.append(arm.sort("TRASH"))
 
     arm.on_state(listener)
-    assert arm.sort("PAPER")
+    assert arm.sort("RECYCLE")
     assert arm.wait_idle(2)
     assert arm.wait_idle(2)  # the chained sort started from the listener
     assert accepted == [True]
-    assert done == ["SORT PAPER", "SORT METAL"]
+    assert done == ["SORT RECYCLE", "SORT TRASH"]
 
 
 def test_listener_stop_reports_a_single_error():
     arm, _, states = homed_arm(fast_config(speed_deg_s=50.0))
     arm.on_state(lambda state, detail: arm.stop() if state is ArmState.BUSY else None)
-    assert arm.sort("PAPER")
+    assert arm.sort("RECYCLE")
     assert wait_for(lambda: arm.state is ArmState.ERROR)
     assert arm.wait_idle(2)
     assert states == [ArmState.BUSY, ArmState.ERROR]
@@ -324,7 +324,7 @@ def test_listeners_never_run_on_the_worker_thread():
     arm, _, _ = homed_arm()
     threads: set[str] = set()
     arm.on_state(lambda state, detail: threads.add(threading.current_thread().name))
-    assert arm.sort("PAPER") and arm.wait_idle(2)
+    assert arm.sort("RECYCLE") and arm.wait_idle(2)
     assert threads == {"arm-notifier"}
 
 
@@ -380,7 +380,7 @@ def test_poll_reports_connection_loss_and_recovery():
     assert not arm.connected
     assert arm.state is ArmState.ERROR
     assert arm.detail.startswith("connection lost")
-    assert not arm.sort("PAPER")
+    assert not arm.sort("RECYCLE")
 
     backend.fail = None
     assert arm.poll() and arm.connected
@@ -391,7 +391,7 @@ def test_poll_reports_connection_loss_and_recovery():
 
 def test_connection_lost_during_a_move():
     arm, backend, _ = homed_arm(fast_config(speed_deg_s=50.0))
-    assert arm.sort("METAL")
+    assert arm.sort("TRASH")
     time.sleep(0.1)
     backend.fail = ConnectionError
     assert arm.wait_idle(2)
@@ -402,7 +402,7 @@ def test_connection_lost_during_a_move():
 
 def test_poll_during_a_move_does_not_touch_the_bus():
     arm, backend, states = homed_arm(fast_config(speed_deg_s=50.0))
-    assert arm.sort("PAPER")
+    assert arm.sort("RECYCLE")
     me = threading.current_thread().name
     for _ in range(20):
         assert arm.poll()
@@ -481,13 +481,13 @@ def test_cli_reports_a_bad_port_and_exits_2(monkeypatch, capsys):
 
 def test_text_protocol_lines():
     arm, _, _ = make_arm()
-    assert handle_line(arm, "SORT PAPER") is not None  # not homed yet
+    assert handle_line(arm, "SORT RECYCLE") is not None  # not homed yet
     assert handle_line(arm, "home") is None
     assert arm.wait_idle(2)
     assert handle_line(arm, "SORT GLASS").startswith("unknown bin")
     assert handle_line(arm, "DANCE").startswith("unknown command")
     assert handle_line(arm, "") is None
-    assert handle_line(arm, "sort metal") is None
+    assert handle_line(arm, "sort trash") is None
     assert arm.wait_idle(2)
     assert handle_line(arm, "STOP") is None
     assert arm.state is ArmState.ERROR
@@ -503,7 +503,7 @@ def test_a_hung_stopped_command_never_resumes():
     arm, backend, _ = homed_arm(config)
     done: list[str] = []
     arm.on_state(lambda state, detail: done.append(detail) if state is ArmState.DONE else None)
-    assert arm.sort("PAPER")
+    assert arm.sort("RECYCLE")
     time.sleep(0.1)
     backend.write_gate = threading.Event()  # the bus hangs
 
@@ -540,7 +540,7 @@ def test_after_a_power_cut_moves_start_from_where_the_arm_really_is():
 
 def test_close_refuses_new_commands_and_stops_motion():
     arm, backend, _ = homed_arm(fast_config(speed_deg_s=50.0))
-    assert arm.sort("METAL")
+    assert arm.sort("TRASH")
     time.sleep(0.1)
     arm.close()
     assert backend.closed
@@ -556,8 +556,8 @@ def test_close_refuses_new_commands_and_stops_motion():
 
 def test_close_waits_for_a_command_chained_from_a_listener():
     arm, backend, _ = homed_arm()
-    arm.on_state(lambda state, detail: arm.sort("METAL") if state is ArmState.READY else None)
-    assert arm.sort("PAPER")
+    arm.on_state(lambda state, detail: arm.sort("TRASH") if state is ArmState.READY else None)
+    assert arm.sort("RECYCLE")
     time.sleep(0.005)
     arm.close()
     closed_at = len(backend.writes)
@@ -570,7 +570,7 @@ def test_stop_does_not_override_a_command_accepted_after_it():
     homes: list[bool] = []
     arm.on_state(lambda state, detail: homes.append(arm.home())
                  if state is ArmState.ERROR and detail == "stopped" and not homes else None)
-    assert arm.sort("PAPER")
+    assert arm.sort("RECYCLE")
     time.sleep(0.05)
     arm.stop()
     assert wait_for(lambda: bool(homes))
@@ -635,7 +635,7 @@ def test_rejection_reasons_are_per_thread():
     t = threading.Thread(target=other_thread, daemon=True)
     t.start()
     rejected.wait(2)
-    assert arm.sort("PAPER")  # this thread's command is accepted
+    assert arm.sort("RECYCLE")  # this thread's command is accepted
     accepted.set()
     t.join(2)
     assert arm.last_rejection is None
@@ -664,19 +664,19 @@ def test_note_formatter_prefixes_every_line():
 # ----- four material bins (issue #23) ------------------------------------------------------------
 
 
-def test_the_four_material_bins_and_their_required_poses():
+def test_the_two_trial_bins_and_their_required_poses():
     from arm.config import BINS
     from arm.poses import REQUIRED_POSES
 
-    assert BINS == ("PAPER", "PLASTIC", "METAL", "ORGANIC")
-    for name in ("above_paper", "above_plastic", "above_metal", "above_organic"):
+    assert BINS == ("RECYCLE", "TRASH")
+    for name in ("above_recycle", "above_trash"):
         assert name in REQUIRED_POSES
     template = load(Path(__file__).resolve().parents[1] / "poses.json")
     assert set(template.poses) == set(REQUIRED_POSES)
 
 
-@pytest.mark.parametrize("old_bin", ["RECYCLE", "TRASH"])
-def test_the_old_two_bin_names_are_rejected_without_motion(old_bin):
+@pytest.mark.parametrize("old_bin", ["PAPER", "PLASTIC", "METAL", "ORGANIC"])
+def test_the_four_material_names_are_rejected_without_motion(old_bin):
     arm, backend, _ = homed_arm()
     writes = len(backend.writes)
     assert not arm.sort(old_bin)
@@ -703,10 +703,10 @@ def test_fault_mid_close_freezes_the_gripper_where_it_was_sent_not_reopened():
         sent.append(goal["gripper"])
 
     backend.write_hook = hook
-    assert arm.sort("PAPER")
+    assert arm.sort("RECYCLE")
     assert arm.wait_idle(3)
     assert arm.state is ArmState.ERROR
-    assert arm.detail.startswith("SORT PAPER failed")
+    assert arm.detail.startswith("SORT RECYCLE failed")
     freeze = backend.writes[-1]
     assert freeze["gripper"] == sent[-1]
     assert CLOSED < freeze["gripper"] < OPEN
@@ -716,7 +716,7 @@ def test_close_never_disconnects_while_a_hung_operation_holds_the_bus():
     # Codex's reproduction: the bus hangs mid-move, so close() cannot get it in time. It must not
     # disconnect underneath the stuck write; the worker disconnects when it ends.
     arm, backend, _ = homed_arm(fast_config(speed_deg_s=50.0, settle_timeout_s=0.1))
-    assert arm.sort("PAPER")
+    assert arm.sort("RECYCLE")
     time.sleep(0.05)
     gate = threading.Event()
     backend.write_gate = gate

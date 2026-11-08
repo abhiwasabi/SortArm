@@ -48,7 +48,7 @@ class MockSource:
         scenario = frame[2]
         return dict(label={'empty': 'EMPTY', 'bottle': 'Plastic bottle',
                            'paper': 'Paper sheet', 'metal': 'Metal can', 'organic': 'Banana peel'}.get(scenario, 'UNKNOWN'),
-                    bin={'bottle': 'PLASTIC', 'paper': 'PAPER', 'metal': 'METAL', 'organic': 'ORGANIC'}.get(scenario),
+                    bin={'bottle': 'RECYCLE', 'paper': 'RECYCLE', 'metal': 'RECYCLE', 'organic': 'TRASH'}.get(scenario),
                     confidence=None, item_present=scenario != 'empty',
                     needs_review=scenario == 'unknown')
 
@@ -126,14 +126,14 @@ class GeminiPredictor:
         }, required=['label', 'item_present', 'needs_review', 'bin'])
         prompt = ('Inspect the pickup area and name the one most prominent object in a few words, '
                   'including a readable brand, such as "Cracker Jack bag" or "aluminum soda can". '
-                  'Choose the bin from the material the object is made of, not from its brand: '
-                  'paper, newspaper, cardboard, and paper cups are PAPER; '
-                  'plastic bottles, cups, bags, film, wrappers, and snack bags, including foil-lined chip bags '
-                  'and a Cracker Jack bag, are PLASTIC; '
-                  'aluminum or steel cans, trays, loose foil, and metal utensils are METAL; '
-                  'food scraps, peels, cores, and leftovers are ORGANIC, while their container is not. '
-                  'Set item_present true, needs_review false, and bin to that material only when one category '
-                  'is clearly dominant. '
+                  'Choose one of two bins, not from the brand. RECYCLE is clean recyclable packaging: '
+                  'paper, newspaper, cardboard, paper cups, plastic bottles, cups, bags, film, wrappers, '
+                  'snack bags, foil-lined chip bags, a Cracker Jack bag, and aluminum or steel cans, trays, '
+                  'loose foil, and metal utensils. TRASH is food scraps, peels, cores, leftovers, and other '
+                  'ordinary waste that is not clean recyclable packaging. If the object is a container, choose '
+                  'the container. '
+                  'Set item_present true, needs_review false, and bin to RECYCLE or TRASH only when one is '
+                  'clearly dominant. '
                   'For an empty area use label EMPTY, item_present false, needs_review false, and bin null. '
                   'For more than one item, a view too unclear to name, or an object with no dominant material '
                   '(glass, ceramic, fabric, electronics, or a mix such as a foil-wrapped burrito), '

@@ -48,7 +48,7 @@ Change these only after posting on the Message Board and getting agreement from 
 
 ### Vision → bridge (#14 → #16)
 
-The vision step returns `label` (a short free-text object name, `EMPTY`, or `UNKNOWN`), `confidence` (0–1, may be absent), and `bin`: one of `"PAPER"`, `"PLASTIC"`, `"METAL"`, `"ORGANIC"` (issue #23), or `None`. Gemini names one prominent object and sets `bin` from its dominant material. Glass, mixed materials, more than one item, or an unclear view returns `needs_review` and `bin=None`. The arm still sorts only when `bin` is one of the four names.
+The vision step returns `label` (a short free-text object name, `EMPTY`, or `UNKNOWN`), `confidence` (0–1, may be absent), and `bin`: `"RECYCLE"`, `"TRASH"` (issue #66 trial; `main` still uses the issue #23 names), or `None`. Clean paper, plastic, and metal packaging is RECYCLE. Food scraps and ordinary non-packaging waste are TRASH. Glass, electronics, mixed materials, more than one item, or an unclear view returns `needs_review` and `bin=None`. The arm sorts only when `bin` is one of those two names.
 
 ### Bridge → arm (#16 → #20)
 
@@ -64,11 +64,11 @@ arm = ArmController.from_config(config)          # mock=True for no hardware; ch
                                                  # poses before opening the port
 arm.on_state(lambda state, detail: ...)          # state is ArmState.READY/BUSY/DONE/ERROR
 arm.home()               # -> bool accepted
-arm.sort("PAPER")        # PAPER/PLASTIC/METAL/ORGANIC (arm.BINS) -> bool accepted; arm.last_rejection says why not
+arm.sort("RECYCLE")      # RECYCLE/TRASH (arm.BINS) -> bool accepted; arm.last_rejection says why not
 arm.stop()               # always accepted
 arm.state, arm.detail    # current state and reason; str(arm.state) == "READY" etc. (use it for arm_state)
 arm.poll()               # call ~1/s: checks the arm answers; returns arm.connected; never raises
-arm.last_done            # (sequence number, "SORT PAPER") of the last completed command
+arm.last_done            # (sequence number, "SORT RECYCLE") of the last completed command
 arm.close()              # on shutdown: stops motion, refuses new commands, then disconnects. Returns
                          # True when disconnected; if the servo bus is hung it returns False and the
                          # stuck operation disconnects as soon as it ends (never concurrently)
@@ -82,10 +82,10 @@ arm.close()              # on shutdown: stops motion, refuses new commands, then
 | How does STOP interrupt a move? | `stop()` can be called from any thread at any time, including mid-sort and from a listener. The move checks for it every control step (20 ms) and **freezes**: body joints hold where they are, and the gripper keeps its last command, so a carried item is not dropped. When `stop()` returns, `arm.state` is `ERROR` (detail `"stopped"`), typically within about 20 ms; the `ERROR` callback follows. This holds even if STOP races a new command or one that is just finishing. The rest of the sequence is cancelled; a stopped SORT never reports `DONE`. |
 | How does DONE become READY? | When the last step finishes, the controller reports `DONE` (detail = the command) and then immediately `READY`. DONE is momentary, so do not wait to poll it. |
 | How is connection loss shown? | `arm.connected` becomes `False` and the arm enters `ERROR` with detail `"connection lost: …"`. Only USB, power, or bus failures count; other faults (e.g. a servo refusing a command) report `"<command> failed: …"` or, from `poll()`, `"arm check failed: …"`, with `connected` unchanged. A move detects connection loss itself. While idle, `arm.poll()` detects it; `poll()` never touches the bus during a move, and a poll result overtaken by a newer command is discarded. After a power cut the next move starts from where the arm really is, not from its old goal. If the arm answers again, `poll()` sets `connected` back to `True`, but the state stays `ERROR` until HOME. After a USB unplug, restart the bridge so LeRobot reopens the port. Map `connected` to `/api/state.connected`. |
-| How do I count each completed command exactly once? | `on_state` is called with `(ArmState.DONE, "SORT PAPER")` exactly once per completed command; count the bin there. If you poll instead, count when `arm.last_done[0]` increases. |
+| How do I count each completed command exactly once? | `on_state` is called with `(ArmState.DONE, "SORT RECYCLE")` exactly once per completed command; count the bin there. If you poll instead, count when `arm.last_done[0]` increases. |
 | Which thread calls `on_state` listeners? | One notifier thread owned by the controller (`arm-notifier`), always in state order. Never the worker or the `poll()` caller. Listeners may call `home()`, `sort()`, `stop()` and `poll()` (e.g. start the next sort on `READY`), but not `wait_idle()`. Keep them short: update the bridge state under its own lock and return. |
 
-**Subprocess:** run `python -m arm.cli` (or `--mock`). Write `HOME`, `SORT <BIN>` (e.g. `SORT PAPER`), or `STOP` lines to its stdin. It prints exactly one state word per line on stdout and writes notes, every line starting with `#`, to stderr (rejection reasons, error details, warnings). While idle it checks the arm once a second, so a lost connection prints `ERROR` with a `# connection lost: …` note.
+**Subprocess:** run `python -m arm.cli` (or `--mock`). Write `HOME`, `SORT <BIN>` (e.g. `SORT RECYCLE`), or `STOP` lines to its stdin. It prints exactly one state word per line on stdout and writes notes, every line starting with `#`, to stderr (rejection reasons, error details, warnings). While idle it checks the arm once a second, so a lost connection prints `ERROR` with a `# connection lost: …` note.
 
 **Arm state machine:**
 
@@ -98,7 +98,7 @@ arm.close()              # on shutdown: stops motion, refuses new commands, then
 ```
 
 - SORT is accepted only in READY and only for a known bin. HOME is accepted unless the arm is BUSY. A rejected command never moves the arm.
-- The `DONE` callback's `detail` is the finished command (e.g. `"SORT PAPER"`). Count an item only on that DONE.
+- The `DONE` callback's `detail` is the finished command (e.g. `"SORT RECYCLE"`). Count an item only on that DONE.
 - Unknown or low-confidence predictions must never call `sort()`. The bridge decides; the arm only checks the bin name.
 - With `MockBackend` (or `--mock`), the bridge works with no hardware.
 
@@ -114,13 +114,13 @@ The bridge serves `web/` and this API on `127.0.0.1` only. POST requests must se
 | `GET /api/gemini` | — | `{configured, model}` | No |
 | `POST /api/stop` | `{}` | `{accepted: true, state}`; always accepted | Stops it: `arm.stop()` |
 | `POST /api/home` | `{}` | 200 `{accepted, state}`, or 409 `{accepted: false, error, state}` with the arm's reason | Yes: `arm.home()`; pauses auto-sorting |
-| `POST /api/sort` | `{"bin": "PAPER"}` | 200; 409 with `error` (the arm's reason, or "the previous sort is still finishing"); or 400 for an unknown bin or while auto-sorting is on | Yes: a manual `arm.sort(bin)`. Needs no camera or vision; counted on DONE as `"Manual"` |
+| `POST /api/sort` | `{"bin": "RECYCLE"}` | 200; 409 with `error` (the arm's reason, or "the previous sort is still finishing"); or 400 for an unknown bin or while auto-sorting is on | Yes: a manual `arm.sort(bin)`. Needs no camera or vision; counted on DONE as `"Manual"` |
 | `POST /api/sorting` | `{"enabled": true\|false}` | 200, or 400 with the reason start was refused | Indirectly: while enabled, each confident vision result triggers `arm.sort(bin)` |
 | `POST /api/camera` | `{source: "mock"\|"usb"\|"esp32"\|"off", url?, index?, device_id?}` | 200 or 400 | No (pauses auto-sorting) |
 | `POST /api/mock` | `{scenario}` | 200 or 400 (simulation only) | No |
 | `POST /api/gemini` | `{key, model?}` or `{disconnect: true}` | `{configured, model}` | No (pauses auto-sorting) |
 
-`GET /api/state` returns `label`, `confidence`, `bin`, `arm_state` (READY/BUSY/DONE/ERROR), `arm_detail` (the error text, or the running command while BUSY), `connected`, `bins` (the allowed bins, in order), and `counts` with exactly the keys `PAPER`, `PLASTIC`, `METAL`, `ORGANIC`. It also carries `recent_sorts` (completed sorts, added from the DONE callback), `sorting_enabled`, `status`, the camera and vision fields, an optional `prediction_at` (ISO 8601), and `public` / `operator` (see Online access). Details and examples: `web/README.md` and `bridge/README.md`.
+`GET /api/state` returns `label`, `confidence`, `bin`, `arm_state` (READY/BUSY/DONE/ERROR), `arm_detail` (the error text, or the running command while BUSY), `connected`, `bins` (the allowed bins, in order), and `counts` with exactly the keys `RECYCLE` and `TRASH`. It also carries `recent_sorts` (completed sorts, added from the DONE callback), `sorting_enabled`, `status`, the camera and vision fields, an optional `prediction_at` (ISO 8601), and `public` / `operator` (see Online access). Details and examples: `web/README.md` and `bridge/README.md`.
 
 ### Online access (#36)
 
