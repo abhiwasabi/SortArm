@@ -1,0 +1,2 @@
+# Install only when AUTH0_DOMAIN, AUTH0_CLIENT_ID, and AUTH0_AUDIENCE are configured.
+PyJWT[crypto]>=2.10,<3
