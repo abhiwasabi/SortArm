@@ -5,5 +5,5 @@ cv2-enumerate-cameras>=1.4,<2
 pyobjc-framework-Cocoa>=10,<14; sys_platform == "darwin"
 # Optional Tiger Data sort log (#47); only imported when TIGER_DATABASE_URL is set.
 psycopg[binary]>=3.2,<4
-# Auth0 operator-token checks. python -m bridge always enables them.
+# Auth0 operator-token checks. Used only when the bridge is started with --public-port.
 PyJWT[crypto]>=2.10,<3
