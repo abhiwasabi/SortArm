@@ -1,11 +1,39 @@
 """Thread-safe decision gate. No camera, cloud, or hardware dependencies."""
 from datetime import datetime, timedelta, timezone
 import math
+import re
 import threading
 import time
 import uuid
 
 BINS = ('RECYCLE', 'TRASH')
+# Words that show up in almost every Gemini rewording and do not identify the object.
+_GENERIC_ITEM_WORDS = frozenset({
+    'item', 'object', 'plastic', 'paper', 'metal', 'organic', 'recycle', 'trash',
+    'bottle', 'can', 'cup', 'box', 'bag', 'wrapper', 'water', 'drink', 'soda',
+    'aluminum', 'cardboard', 'packaging',
+})
+
+
+def _item_words(label):
+    return [word for word in re.findall(r'[a-z0-9]+', label.casefold()) if len(word) > 2]
+
+
+def same_item(previous, current):
+    """True when two Gemini names are rewordings of one object, not a new object."""
+    if not previous or not current:
+        return False
+    previous_words, current_words = _item_words(previous), _item_words(current)
+    if not previous_words or not current_words:
+        return False
+    previous_names = {word for word in previous_words if word not in _GENERIC_ITEM_WORDS}
+    current_names = {word for word in current_words if word not in _GENERIC_ITEM_WORDS}
+    if previous_names and current_names:
+        return bool(previous_names & current_names)
+    previous_set, current_set = set(previous_words), set(current_words)
+    if previous_set <= current_set or current_set <= previous_set:
+        return True
+    return len(previous_set & current_set) / min(len(previous_set), len(current_set)) >= 0.6
 
 
 def validate_prediction(raw):
@@ -64,6 +92,7 @@ class Bridge:
         self.awaiting_clear = False
         self.empty_samples = 0
         self.last_sorted_signature = None
+        self.last_sorted_label = None
         self.manual_item_in_view = False
         self.last_evaluated_frame = None
         self.counts = dict.fromkeys(BINS, 0)
@@ -323,6 +352,7 @@ class Bridge:
                 if self.empty_samples >= 2:
                     self.awaiting_clear = False
                     self.last_sorted_signature = None
+                    self.last_sorted_label = None
                     self.manual_item_in_view = False
                 self.status = 'Pickup area empty.'
                 return False
@@ -332,13 +362,14 @@ class Bridge:
                     or (result['confidence'] is not None and result['confidence'] < .8)):
                 self.status = 'Item needs review; no motion requested.'
                 return False
-            # Bin, not the free-text name. Gemini rewords one object ("Celsius can" /
-            # "Celsius energy drink can") and a label match would sort it again.
-            signature = result['bin']
+            # One look at an object counts once, including when Gemini rewords it
+            # or both objects belong in the same bin. A different object still sorts.
             if self.continuous_sorting and self.manual_item_in_view:
                 self.manual_item_in_view = False
-                self.last_sorted_signature = signature
-            if self.continuous_sorting and signature == self.last_sorted_signature:
+                self.last_sorted_signature = result['bin']
+                self.last_sorted_label = result['label']
+            if (self.continuous_sorting and self.last_sorted_label
+                    and same_item(self.last_sorted_label, result['label'])):
                 self.awaiting_clear = True
                 self.status = 'Already sorted this item. Show a different item.'
                 return False
@@ -356,7 +387,8 @@ class Bridge:
             if accepted:
                 self.awaiting_clear = True
                 if self.continuous_sorting:
-                    self.last_sorted_signature = signature
+                    self.last_sorted_signature = result['bin']
+                    self.last_sorted_label = result['label']
                 self.epoch += 1
                 self.status = 'Sorting into ' + result['bin'] + '.'
             else:

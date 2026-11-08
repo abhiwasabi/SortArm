@@ -136,6 +136,16 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(self.bridge.counts['TRASH'], 1)
         self.assertFalse(self.result(metal))
 
+    def test_a_new_object_in_the_same_bin_sorts_once(self):
+        self.assertTrue(self.result(prediction(label='Wellsley Farms water bottle', bin='RECYCLE')))
+        self.arm.finish()
+        self.assertTrue(self.result(prediction(label='Celsius energy drink can', bin='RECYCLE')))
+        self.arm.finish()
+        self.assertFalse(self.result(prediction(label='Celsius can', bin='RECYCLE')))
+        self.assertEqual(self.bridge.status, 'Already sorted this item. Show a different item.')
+        self.assertEqual(self.arm.commands, ['RECYCLE', 'RECYCLE'])
+        self.assertEqual(self.bridge.counts['RECYCLE'], 2)
+
     def test_reworded_name_does_not_sort_the_same_item_again(self):
         self.assertTrue(self.result(prediction(label='Celsius can', bin='TRASH')))
         self.arm.finish()
