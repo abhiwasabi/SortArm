@@ -1,10 +1,14 @@
-"""Optional Auth0 access-token validation for dashboard operator commands."""
+"""Auth0 access-token validation for dashboard operator commands."""
 from dataclasses import dataclass
 import os
 import re
 
 
 OPERATOR_PERMISSION = 'sorter:operate'
+# Public SPA identifiers. The client secret is not used and must not be stored here.
+PROJECT_DOMAIN = 'dev-ilye6s18ng7ernps.us.auth0.com'
+PROJECT_CLIENT_ID = 'rd4I86eUTelgHzFYI9mCdeRgAq0bAz8a'
+PROJECT_AUDIENCE = 'https://sharkbyte.local/api'
 
 
 class AuthError(Exception):
@@ -33,6 +37,11 @@ class Auth0Config:
         if not client_id or not audience:
             raise ValueError('Auth0 client ID and API audience must be nonempty')
         return cls(domain, client_id, audience)
+
+    @classmethod
+    def for_runtime(cls, environ=None):
+        """Use env overrides when set, otherwise the project tenant."""
+        return cls.from_env(environ) or cls(PROJECT_DOMAIN, PROJECT_CLIENT_ID, PROJECT_AUDIENCE)
 
     def public(self):
         return {'enabled': True, 'domain': self.domain, 'clientId': self.client_id,

@@ -1,4 +1,4 @@
-// Optional Auth0 operator login. The server remains the authority for every command.
+// Auth0 operator login. The server remains the authority for every command.
 const authPreview = new URLSearchParams(location.search).get('demo') === '1';
 const authGate = document.getElementById('authGate');
 const authMessage = document.getElementById('authMessage');
@@ -49,6 +49,8 @@ async function initializeAuth() {
   authClient = await window.auth0.createAuth0Client({
     domain: config.domain,
     clientId: config.clientId,
+    cacheLocation: 'memory',
+    useRefreshTokens: false,
     authorizationParams: {redirect_uri: location.origin + '/', audience: config.audience}
   });
   const query = new URLSearchParams(location.search);
@@ -73,15 +75,22 @@ async function initializeAuth() {
     showGate('', true);
   } else {
     showGate('Sign in to control the sorter. STOP remains available.');
+    await startLogin();
   }
 }
 
-authSignIn.addEventListener('click', async () => {
+async function startLogin() {
   if (!authClient) return;
   authSignIn.disabled = true;
-  try { await authClient.loginWithRedirect(); }
-  catch { authMessage.textContent = 'Sign in could not start. Try again.'; authSignIn.disabled = false; }
-});
+  try {
+    await authClient.loginWithRedirect({authorizationParams: {prompt: 'login'}});
+  } catch {
+    authMessage.textContent = 'Sign in could not start. Try again.';
+    authSignIn.disabled = false;
+  }
+}
+
+authSignIn.addEventListener('click', () => startLogin());
 authSignOut.addEventListener('click', () => {
   if (authClient) authClient.logout({logoutParams: {returnTo: location.origin + '/'}});
 });

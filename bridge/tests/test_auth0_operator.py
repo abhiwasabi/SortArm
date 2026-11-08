@@ -16,6 +16,16 @@ from bridge.server import make_server
 class Auth0ConfigTests(unittest.TestCase):
     def test_unconfigured_and_partial_configuration(self):
         self.assertIsNone(Auth0Config.from_env({}))
+        runtime = Auth0Config.for_runtime({})
+        self.assertEqual(runtime.domain, 'dev-ilye6s18ng7ernps.us.auth0.com')
+        self.assertEqual(runtime.client_id, 'rd4I86eUTelgHzFYI9mCdeRgAq0bAz8a')
+        self.assertEqual(runtime.audience, 'https://sharkbyte.local/api')
+        override = Auth0Config.for_runtime({
+            'AUTH0_DOMAIN': 'other.us.auth0.com',
+            'AUTH0_CLIENT_ID': 'abc',
+            'AUTH0_AUDIENCE': 'https://sorter',
+        })
+        self.assertEqual(override.domain, 'other.us.auth0.com')
         with self.assertRaisesRegex(ValueError, 'together'):
             Auth0Config.from_env({'AUTH0_DOMAIN': 'example.us.auth0.com'})
         with self.assertRaisesRegex(ValueError, 'hostname'):

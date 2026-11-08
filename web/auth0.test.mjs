@@ -20,13 +20,16 @@ function harness(config, authenticated = false) {
       return {ok: true, json: async () => url === '/api/operator'
         ? {authorized: true, sub: 'operator'} : config};
     },
-    auth0: {createAuth0Client: async () => ({
-      isAuthenticated: async () => authenticated,
-      getUser: async () => ({name: 'Test Operator'}),
-      getTokenSilently: async () => 'signed-token',
-      loginWithRedirect: async () => { calls.push({url: 'login'}); },
-      logout: () => { calls.push({url: 'logout'}); }
-    })}
+    auth0: {createAuth0Client: async (options) => {
+      calls.push({url: 'create', options});
+      return {
+        isAuthenticated: async () => authenticated,
+        getUser: async () => ({name: 'Test Operator'}),
+        getTokenSilently: async () => 'signed-token',
+        loginWithRedirect: async (request) => { calls.push({url: 'login', request}); },
+        logout: () => { calls.push({url: 'logout'}); }
+      };
+    }}
   };
   const document = {getElementById: element, querySelector: () => element('content'),
     head: {append(script) { script.onload(); }},
@@ -56,6 +59,11 @@ test('configured Auth0 hides controls until signed in and leaves STOP public', a
   await assert.rejects(() => signedOut.window.fetch('/api/home', {method: 'POST'}), /Sign in/);
   await signedOut.window.fetch('/api/stop', {method: 'POST'});
   assert.equal(signedOut.calls.at(-1).options.headers, undefined);
+  const created = signedOut.calls.find((call) => call.url === 'create');
+  assert.equal(created.options.cacheLocation, 'memory');
+  assert.equal(created.options.useRefreshTokens, false);
+  const prompted = signedOut.calls.find((call) => call.url === 'login');
+  assert.equal(prompted.request.authorizationParams.prompt, 'login');
   await signedOut.element('authSignIn').listeners.click();
   assert.equal(signedOut.calls.at(-1).url, 'login');
 

@@ -1,2 +1,2 @@
-# Install only when AUTH0_DOMAIN, AUTH0_CLIENT_ID, and AUTH0_AUDIENCE are configured.
+# Included in bridge/requirements.txt. Kept so an existing Auth0 setup command still works.
 PyJWT[crypto]>=2.10,<3

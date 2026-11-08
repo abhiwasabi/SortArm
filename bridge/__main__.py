@@ -7,6 +7,7 @@ import time
 import urllib.error
 
 from .adapters import Camera, GeminiPredictor, prediction_error_message
+from .auth0_operator import Auth0Config, Auth0Verifier
 from .camera_sources import CameraSourceManager, Esp32SnapshotSource, validate_esp32_url
 from .core import Bridge
 from .scene_changes import SceneCadence, scene_signature
@@ -117,10 +118,12 @@ def main():
                     bridge.invalidate('Arm polling failed. Check connection and restart.')
 
     workers = [threading.Thread(target=fn, daemon=True) for fn in (capture_loop, prediction_loop, poll_loop)]
-    server = make_server(bridge, web, args.port, camera_manager=camera)
+    server = make_server(bridge, web, args.port, camera_manager=camera,
+                         auth=Auth0Verifier(Auth0Config.for_runtime()))
     for worker in workers:
         worker.start()
     print(f'Dashboard: http://127.0.0.1:{server.server_port}', flush=True)
+    print('Auth0 login is required for operator controls.', flush=True)
     print('SIMULATED ARM' if mock_arm else 'PHYSICAL ARM: verify calibration, taught poses, and power cutoff.', flush=True)
     if predictor is None:
         print('Gemini is not configured; live cameras can preview, but sorting is disabled.', flush=True)
