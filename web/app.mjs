@@ -59,7 +59,8 @@ const ui = {
   historyStatus: byId("historyStatus"),
   historyMessage: byId("historyMessage"),
   sortHistory: byId("sortHistory"),
-  historyAnnouncement: byId("historyAnnouncement")
+  historyAnnouncement: byId("historyAnnouncement"),
+  sortToast: byId("sortToast")
 };
 
 const previewMode = new URLSearchParams(window.location.search).get("demo") === "1";
@@ -87,6 +88,7 @@ let stopMinimumSequence = 0;
 let stopConfirmationTimer = null;
 let renderedHistoryKey = null;
 let latestHistoryId = null;
+let sortToastTimer = null;
 let manualBinsKey = null;
 let manualButtons = [];
 let operatorPending = false;
@@ -311,10 +313,19 @@ function renderHistory() {
   ui.sortHistory.replaceChildren(...rows);
   const newest = sorts?.[0];
   if (!previewMode && newest && latestHistoryId !== null && newest.id !== latestHistoryId) {
-    ui.historyAnnouncement.textContent = newest.label + " sorted into " +
-      BIN_DISPLAY[newest.bin].label + ".";
+    const destination = BIN_DISPLAY[newest.bin].label.replace(/ bin$/, "");
+    ui.historyAnnouncement.textContent = newest.label + " was sorted to " + destination + ".";
+    showSortToast(newest.label, destination, newest.bin);
   }
   if (newest) latestHistoryId = newest.id;
+}
+
+function showSortToast(label, destination, bin) {
+  ui.sortToast.hidden = false;
+  ui.sortToast.dataset.bin = bin;
+  ui.sortToast.textContent = label + " was sorted to " + destination;
+  clearTimeout(sortToastTimer);
+  sortToastTimer = setTimeout(() => { ui.sortToast.hidden = true; }, 5000);
 }
 
 function manualSortAvailable() {
@@ -570,10 +581,17 @@ async function bridgeCommand(path, body = {}) {
 
 async function applyCameraSource() {
   if (!operatorAvailable() || controlPending || cameraChangePending || !snapshot?.bridgeAvailable) return;
-  const source = ui.cameraSourceSelect.value;
+  let source = ui.cameraSourceSelect.value;
+  let usedFallback = false;
   if (["usb", "iphone"].includes(source) && !ui.usbCameraDevice.value) {
-    setNotice("Selected camera is unavailable or still being detected. Refresh the camera list and try again.", "error");
-    return;
+    if (!snapshot.mockAvailable) {
+      setNotice("Selected camera is unavailable or still being detected. Refresh the camera list and try again.", "error");
+      return;
+    }
+    // A missing phone must not leave the demo preview off, and must not open camera index 0.
+    ui.cameraSourceSelect.value = "mock";
+    source = "mock";
+    usedFallback = true;
   }
   const body = { source: source === "iphone" ? "usb" : source };
   if (source === "esp32") body.url = ui.esp32CameraUrl.value.trim();
@@ -602,9 +620,11 @@ async function applyCameraSource() {
     lastFrameAt = null;
     frameRequestAt = null;
     ui.cameraFrame.removeAttribute("src");
-    setNotice(source === "esp32" ?
+    setNotice(usedFallback ?
+      "iPhone not detected. Showing the simulated camera." :
+      source === "esp32" ?
       "ESP32 camera selected. Waiting for JPEG frames; sorting is paused." :
-      "Camera changed. Sorting is paused.", "success");
+      "Camera changed. Sorting is paused.", usedFallback ? "info" : "success");
   } catch (error) {
     setNotice(error.name === "AbortError" ?
       "Camera request timed out. Check the dashboard connection." : error.message, "error");
