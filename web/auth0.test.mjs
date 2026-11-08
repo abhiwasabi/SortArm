@@ -130,3 +130,22 @@ test('public Auth0 requires login before the sorter and sends the token only on 
   assert.equal(unread.calls.at(-1).url, '/api/home');
   assert.equal(unread.calls.at(-1).options.headers, undefined);
 });
+
+test('the operator panel Log out also ends an Auth0 login', async () => {
+  const config = {enabled: true, public: true, domain: 'example.us.auth0.com', clientId: 'client', audience: 'https://sorter'};
+  const signedIn = harness(config, true);
+  await signedIn.ready;
+  await signedIn.window.fetch('/api/logout', {method: 'POST', body: '{}'});
+  const logoutPost = signedIn.calls.findIndex((call) => call.url === '/api/logout');
+  const auth0Logout = signedIn.calls.findIndex((call) => call.url === 'logout');
+  assert.ok(logoutPost >= 0, 'the bridge logout is still sent');
+  assert.equal(signedIn.calls[logoutPost].options.headers, undefined);
+  assert.ok(auth0Logout > logoutPost, 'Auth0 sign-out follows the bridge logout');
+  await signedIn.window.fetch('/api/state');
+  assert.equal(signedIn.calls.at(-1).options.headers, undefined);
+
+  const signedOut = harness(config);
+  await signedOut.ready;
+  await signedOut.window.fetch('/api/logout', {method: 'POST', body: '{}'});
+  assert.equal(signedOut.calls.some((call) => call.url === 'logout'), false);
+});
