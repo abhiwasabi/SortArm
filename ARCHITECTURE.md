@@ -48,7 +48,7 @@ Change these only after posting on the Message Board and getting agreement from 
 
 ### Vision → bridge (#14 → #16)
 
-The vision step returns `label` (string), `confidence` (0–1, may be absent), and `bin`: one of `"PAPER"`, `"PLASTIC"`, `"METAL"`, `"ORGANIC"` (issue #23), or `None`. With no detection or low confidence it returns `label="UNKNOWN"` and `bin=None`. The model (YOLO or Gemini) is still being settled in #14/#16. Demo items, one or more per bin, are not chosen or measured yet.
+The vision step (Gemini, #14) returns `label` (a free-text object name such as "foil-wrapped burrito", `EMPTY`, or `UNKNOWN`), `material` (`PAPER`, `PLASTIC`, `METAL`, `ORGANIC`, `MIXED`, `OTHER`, or `None` for an empty area), `confidence` (0–1, may be absent), and `bin`: one of `"PAPER"`, `"PLASTIC"`, `"METAL"`, `"ORGANIC"` (issue #23), or `None`. A bin must equal the material. Only items the gripper is known to hold get a bin: `GRIPPER_ITEMS` in `bridge/adapters.py` (plastic bottle, paper sheet, metal can, banana peel until Paul tests more). Every other item keeps its label and material for the dashboard, has `bin=None` and `needs_review=True`, and is never sorted.
 
 ### Bridge → arm (#16 → #20)
 
@@ -120,7 +120,7 @@ The bridge serves `web/` and this API on `127.0.0.1` only. POST requests must se
 | `POST /api/mock` | `{scenario}` | 200 or 400 (simulation only) | No |
 | `POST /api/gemini` | `{key, model?}` or `{disconnect: true}` | `{configured, model}` | No (pauses auto-sorting) |
 
-`GET /api/state` returns `label`, `confidence`, `bin`, `arm_state` (READY/BUSY/DONE/ERROR), `arm_detail` (the error text, or the running command while BUSY), `connected`, `bins` (the allowed bins, in order), and `counts` with exactly the keys `PAPER`, `PLASTIC`, `METAL`, `ORGANIC`. It also carries `recent_sorts` (completed sorts, added from the DONE callback), `sorting_enabled`, `status`, the camera and vision fields, an optional `prediction_at` (ISO 8601), and `public` / `operator` (see Online access). Details and examples: `web/README.md` and `bridge/README.md`.
+`GET /api/state` returns `label`, `material`, `confidence`, `bin`, `arm_state` (READY/BUSY/DONE/ERROR), `arm_detail` (the error text, or the running command while BUSY), `connected`, `bins` (the allowed bins, in order), and `counts` with exactly the keys `PAPER`, `PLASTIC`, `METAL`, `ORGANIC`. It also carries `recent_sorts` (completed sorts, added from the DONE callback), `sorting_enabled`, `status`, the camera and vision fields, an optional `prediction_at` (ISO 8601), and `public` / `operator` (see Online access). Details and examples: `web/README.md` and `bridge/README.md`.
 
 ### Online access (#36)
 

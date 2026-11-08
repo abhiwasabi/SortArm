@@ -263,6 +263,23 @@ class BridgeTests(unittest.TestCase):
         self.assertIsNone(self.bridge.pending_sort)
         self.assertEqual(self.arm.commands, [])
 
+    def test_reworded_label_for_the_same_item_is_not_sorted_twice(self):
+        first = prediction(label='clear water bottle', material='PLASTIC', item='Plastic bottle')
+        self.assertTrue(self.result(first))
+        self.arm.finish()
+        self.assertFalse(self.result(dict(first, label='plastic water bottle')))
+        self.assertEqual(self.bridge.status, 'Already sorted this item. Show a different item.')
+        self.assertEqual(self.arm.commands, ['PLASTIC'])
+
+    def test_material_must_match_the_bin_and_is_shown_in_state(self):
+        for raw in (prediction(material='PAPER'), prediction(material='MIXED'), prediction(material='GLASS')):
+            with self.assertRaises(ValueError):
+                self.result(raw)
+        self.result(prediction(label='apple core', material='ORGANIC', bin=None, needs_review=True))
+        state = self.bridge.snapshot()
+        self.assertEqual((state['label'], state['material'], state['bin']), ('apple core', 'ORGANIC', None))
+        self.assertEqual(self.arm.commands, [])
+
     def test_item_sorted_by_hand_is_not_sorted_again_after_start(self):
         # Simulated continuous mode: Pause, manual sort, Start. Classification was paused during the
         # manual sort, so the item still in view must not be sorted (and counted) a second time.

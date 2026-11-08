@@ -1,6 +1,7 @@
 const ARM_STATES = new Set(["READY", "BUSY", "DONE", "ERROR"]);
 export const BIN_KEYS = ["PAPER", "PLASTIC", "METAL", "ORGANIC"];
 const BINS = new Set(BIN_KEYS);
+const MATERIALS = new Set([...BIN_KEYS, "MIXED", "OTHER"]);
 const HISTORY_LIMIT = 20;
 
 function configuredBins(value) {
@@ -12,6 +13,20 @@ function configuredBins(value) {
 
 function nonnegativeCount(value) {
   return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+function material(value) {
+  const name = typeof value === "string" ? value.trim().toUpperCase() : "";
+  return MATERIALS.has(name) ? name : null;
+}
+
+function reviewNote(state) {
+  const reason = state.material === "MIXED" ? "Mixed materials, so no single bin fits."
+    : state.material === "OTHER" ? "Not paper, plastic, metal, or organic."
+    : state.material ? "Not on the gripper's tested item list."
+    : "No supported bin decision.";
+  return reason + (state.predictionAt === null
+    ? " Capture time was not supplied." : " The arm should remain still.");
 }
 
 function predictionTime(value) {
@@ -35,7 +50,7 @@ function completedSorts(value) {
     if (!id || seen.has(id) || !label || label.toUpperCase() === "UNKNOWN" ||
         !BINS.has(bin) || !Number.isFinite(completedMs)) continue;
     seen.add(id);
-    rows.push({ id, label, bin, completedAt: new Date(completedMs).toISOString(), completedMs });
+    rows.push({ id, label, bin, material: material(entry.material), completedAt: new Date(completedMs).toISOString(), completedMs });
   }
   return rows.sort((a, b) => b.completedMs - a.completedMs).slice(0, HISTORY_LIMIT)
     .map(({ completedMs, ...entry }) => entry);
@@ -83,6 +98,7 @@ export function normalizeState(raw) {
     status: typeof raw.status === "string" ? raw.status : "",
     armDetail: typeof raw.arm_detail === "string" ? raw.arm_detail : "",
     label,
+    material: material(raw.material),
     confidence,
     bin,
     armState,
@@ -138,16 +154,15 @@ export function derivePrediction(state, options = {}) {
   }
   if (state.label.toUpperCase() === "UNKNOWN" || state.bin === null) {
     return { kind: "review", label: ["UNKNOWN", "EMPTY"].includes(state.label.toUpperCase()) ? "Unknown item" : state.label,
-      confidence: state.confidence, bin: null,
-      note: state.predictionAt === null
-        ? "No supported bin decision. Capture time was not supplied."
-        : "No supported bin decision. The arm should remain still." };
+      confidence: state.confidence, bin: null, material: state.material ?? null,
+      note: reviewNote(state) };
   }
   return {
     kind: state.predictionAt === null ? "latest" : "detected",
     label: state.label,
     confidence: state.confidence,
     bin: state.bin,
+    material: state.material ?? null,
     note: state.predictionAt === null
       ? state.confidence === null
         ? "Latest API response. Capture time and model confidence score were not supplied."

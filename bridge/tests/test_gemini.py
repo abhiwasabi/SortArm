@@ -3,7 +3,8 @@ import json
 import unittest
 from unittest.mock import patch
 
-from bridge.adapters import GeminiPredictor, recognition_frame
+from bridge.adapters import GRIPPER_ITEMS, GeminiPredictor, apply_gripper_policy, recognition_frame
+from bridge.core import MATERIALS
 
 
 class GeminiTests(unittest.TestCase):
@@ -48,12 +49,75 @@ class GeminiTests(unittest.TestCase):
         self.assertEqual(payload['generationConfig']['responseMimeType'], 'application/json')
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-only-key', 'GEMINI_MODEL': 'test-model'})
-    def test_incomplete_and_policy_mismatched_responses_are_rejected(self):
-        raw = dict(label='Plastic bottle', item_present=True, needs_review=False, bin='PAPER')
-        for response in (self.response(raw), self.response(raw, finish='MAX_TOKENS')):
+    def test_incomplete_and_material_mismatched_responses_are_rejected(self):
+        raw = answer(label='Plastic bottle', material='PLASTIC', demo_item='Plastic bottle', bin='PAPER')
+        for response in (self.response(raw), self.response(answer(), finish='MAX_TOKENS')):
             with patch('urllib.request.urlopen', return_value=response):
                 with self.assertRaises(ValueError):
                     GeminiPredictor().predict((b'jpeg', 'image/jpeg'))
+
+    @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-only-key', 'GEMINI_MODEL': 'test-model'})
+    def test_schema_asks_for_free_label_material_and_demo_item(self):
+        with patch('urllib.request.urlopen', return_value=self.response(answer())) as request:
+            GeminiPredictor().predict((b'jpeg', 'image/jpeg'))
+        payload = json.loads(request.call_args.args[0].data)
+        schema = payload['generationConfig']['responseSchema']
+        self.assertNotIn('enum', schema['properties']['label'])
+        self.assertEqual(schema['properties']['material']['enum'], list(MATERIALS))
+        self.assertEqual(schema['properties']['demo_item']['enum'], list(GRIPPER_ITEMS) + ['NONE'])
+        self.assertTrue({'material', 'demo_item'} <= set(schema['required']))
+        prompt = payload['contents'][0]['parts'][0]['text']
+        for item in GRIPPER_ITEMS:
+            self.assertIn(item, prompt)
+
+
+def answer(**changes):
+    return dict(dict(label='clear plastic water bottle', material='PLASTIC', demo_item='Plastic bottle',
+                     item_present=True, needs_review=False, bin='PLASTIC'), **changes)
+
+
+class GripperPolicyTests(unittest.TestCase):
+    def test_gripper_item_keeps_its_bin_and_fixed_name(self):
+        for item, bin_name in GRIPPER_ITEMS.items():
+            result = apply_gripper_policy(answer(label='a ' + item.lower(), material=bin_name,
+                                                 demo_item=item, bin=bin_name))
+            self.assertEqual((result['bin'], result['material'], result['item']), (bin_name, bin_name, item))
+            self.assertFalse(result['needs_review'])
+            self.assertEqual(result['label'], 'a ' + item.lower())
+
+    def test_recognised_item_off_the_gripper_list_is_named_but_not_sorted(self):
+        result = apply_gripper_policy(answer(label='apple core', material='ORGANIC', demo_item='NONE', bin='ORGANIC'))
+        self.assertEqual((result['label'], result['material'], result['bin'], result['item']),
+                         ('apple core', 'ORGANIC', None, None))
+        self.assertTrue(result['needs_review'])
+
+    def test_demo_item_must_match_the_bin(self):
+        result = apply_gripper_policy(answer(label='steel tin', material='METAL', demo_item='Plastic bottle', bin='METAL'))
+        self.assertIsNone(result['bin'])
+        self.assertTrue(result['needs_review'])
+
+    def test_mixed_other_and_unclear_items_have_no_bin(self):
+        for raw in (answer(label='foil-wrapped burrito', material='MIXED', demo_item='NONE', bin=None),
+                    answer(label='glass jar', material='OTHER', demo_item='NONE', bin=None),
+                    answer(label='UNKNOWN', material='OTHER', demo_item='NONE', bin=None, needs_review=True),
+                    answer(needs_review=True)):
+            result = apply_gripper_policy(raw)
+            self.assertTrue(result['needs_review'], raw)
+            self.assertIsNone(result['item'], raw)
+        self.assertEqual(apply_gripper_policy(answer(needs_review=True))['bin'], 'PLASTIC')  # core refuses SORT
+
+    def test_bin_for_mixed_or_other_material_is_rejected(self):
+        for material in ('MIXED', 'OTHER'):
+            with self.assertRaises(ValueError):
+                apply_gripper_policy(answer(material=material, bin='PLASTIC'))
+        with self.assertRaises(ValueError):
+            apply_gripper_policy(answer(material='GLASS'))
+
+    def test_empty_area_has_no_material(self):
+        result = apply_gripper_policy(answer(label='EMPTY', material=None, demo_item='NONE',
+                                             item_present=False, bin=None))
+        self.assertEqual((result['material'], result['item'], result['bin']), (None, None, None))
+        self.assertFalse(result['needs_review'])
 
 class DiagnosticTests(unittest.TestCase):
     def test_http_errors_do_not_expose_credentials(self):

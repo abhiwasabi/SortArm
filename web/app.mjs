@@ -378,7 +378,9 @@ function render() {
     staleAfterMs: previewMode ? 86400000 : 8000
   });
   ui.itemLabel.textContent = prediction.label;
-  ui.predictionNote.textContent = prediction.note;
+  ui.predictionNote.textContent = (prediction.material
+    ? "Material: " + prediction.material.charAt(0) + prediction.material.slice(1).toLowerCase() + ". "
+    : "") + prediction.note;
   const percent = prediction.confidence === null ? null : Math.round(prediction.confidence * 100);
   ui.confidenceValue.textContent = percent === null ? "—" : percent + "%";
   ui.confidenceFill.style.width = percent === null ? "0%" : percent + "%";

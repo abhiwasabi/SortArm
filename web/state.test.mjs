@@ -137,7 +137,31 @@ test("completed-sort history is separate from the current prediction", () => {
     recent_sorts: [completed] });
   assert.equal(state.label, "Paper flyer");
   assert.deepEqual(state.recentSorts, [{ id: "sort-1", label: "Plastic bottle", bin: "PLASTIC",
-    completedAt: "2026-11-07T05:31:00.000Z" }]);
+    material: null, completedAt: "2026-11-07T05:31:00.000Z" }]);
+});
+
+test("material is normalized and explains why an item is not sorted", () => {
+  const now = Date.parse("2026-11-08T06:00:00Z");
+  const base = { ...sample, prediction_at: "2026-11-08T06:00:00Z" };
+  const options = { backendOnline: true, cameraOnline: true, now };
+  assert.equal(normalizeState({ ...base, material: "metal" }).material, "METAL");
+  assert.equal(normalizeState({ ...base, material: "glass" }).material, null);
+  const cases = [
+    ["MIXED", "Mixed materials"], ["OTHER", "Not paper, plastic, metal, or organic"],
+    ["ORGANIC", "Not on the gripper's tested item list"]];
+  for (const [material, reason] of cases) {
+    const prediction = derivePrediction(normalizeState(
+      { ...base, label: "Foil-wrapped burrito", bin: null, material }), options);
+    assert.equal(prediction.kind, "review");
+    assert.equal(prediction.label, "Foil-wrapped burrito");
+    assert.equal(prediction.material, material);
+    assert.ok(prediction.note.startsWith(reason), prediction.note);
+  }
+  const sorted = derivePrediction(normalizeState({ ...base, bin: "PLASTIC", material: "PLASTIC" }), options);
+  assert.equal(sorted.material, "PLASTIC");
+  const history = normalizeState({ ...base, recent_sorts: [{ id: "s", label: "Metal can", bin: "METAL",
+    material: "METAL", completed_at: "2026-11-08T05:59:00Z" }] });
+  assert.equal(history.recentSorts[0].material, "METAL");
 });
 
 test("history rejects invalid and duplicate events and keeps the newest 20", () => {

@@ -22,6 +22,8 @@ SCHEMA = (
         detail      TEXT
     )""",
     "CREATE UNIQUE INDEX IF NOT EXISTS sort_events_sort_id_time ON sort_events (sort_id, time)",
+    # Added for #14; ALTER keeps tables created before the column existed working.
+    "ALTER TABLE sort_events ADD COLUMN IF NOT EXISTS material TEXT",
 )
 # Tiger Cloud services include TimescaleDB; on plain Postgres these fail and the table stays ordinary.
 HYPERTABLE = "SELECT create_hypertable('sort_events', 'time', if_not_exists => TRUE)"
@@ -52,11 +54,11 @@ TOTALS = "SELECT outcome, count(*)::int FROM sort_events WHERE simulated = %s GR
 OTHER_MODE = "SELECT count(*)::int FROM sort_events WHERE simulated <> %s"
 RECENT = """SELECT time, label, bin, outcome, confidence, cycle_s
             FROM sort_events WHERE simulated = %s ORDER BY time DESC LIMIT %s"""
-INSERT = """INSERT INTO sort_events (time, sort_id, label, bin, confidence, outcome, cycle_s, simulated, detail)
-            VALUES (%(time)s, %(sort_id)s, %(label)s, %(bin)s, %(confidence)s, %(outcome)s,
+INSERT = """INSERT INTO sort_events (time, sort_id, label, bin, material, confidence, outcome, cycle_s, simulated, detail)
+            VALUES (%(time)s, %(sort_id)s, %(label)s, %(bin)s, %(material)s, %(confidence)s, %(outcome)s,
                     %(cycle_s)s, %(simulated)s, %(detail)s)
             ON CONFLICT (sort_id, time) DO NOTHING"""
-FIELDS = ('time', 'sort_id', 'label', 'bin', 'confidence', 'outcome', 'cycle_s', 'simulated', 'detail')
+FIELDS = ('time', 'sort_id', 'label', 'bin', 'material', 'confidence', 'outcome', 'cycle_s', 'simulated', 'detail')
 
 
 def describe_error(exc):

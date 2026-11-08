@@ -6,6 +6,8 @@ import time
 import uuid
 
 BINS = ('PAPER', 'PLASTIC', 'METAL', 'ORGANIC')
+# What the item is made of. MIXED and OTHER never have a bin.
+MATERIALS = BINS + ('MIXED', 'OTHER')
 
 
 def validate_prediction(raw):
@@ -16,6 +18,8 @@ def validate_prediction(raw):
     review = raw.get('needs_review')
     bin_name = raw.get('bin')
     confidence = raw.get('confidence')
+    material = raw.get('material')
+    item = raw.get('item')
     if not isinstance(label, str) or not label.strip():
         raise ValueError('Prediction needs a label')
     if type(present) is not bool or type(review) is not bool:
@@ -25,10 +29,18 @@ def validate_prediction(raw):
     if confidence is not None and (type(confidence) not in (int, float)
             or not math.isfinite(confidence) or not 0 <= confidence <= 1):
         raise ValueError('Invalid confidence')
+    if material is not None and material not in MATERIALS:
+        raise ValueError('Unsupported material')
+    if bin_name is not None and material is not None and bin_name != material:
+        raise ValueError('Bin does not match the material')
+    if item is not None and (not isinstance(item, str) or not item.strip()):
+        raise ValueError('Invalid item')
     if not present and (bin_name is not None or label.upper() != 'EMPTY'):
         raise ValueError('Empty pickup area must have label EMPTY and no bin')
     return dict(label=label.strip()[:80], item_present=present,
-                needs_review=review, bin=bin_name, confidence=confidence)
+                needs_review=review, bin=bin_name, confidence=confidence,
+                material=material if present else None,
+                item=item.strip()[:80] if item is not None and present else None)
 
 
 class Bridge:
@@ -86,6 +98,7 @@ class Bridge:
                 self.counts[record['bin']] += 1
                 completed_at = datetime.now(timezone.utc)
                 self.recent_sorts.insert(0, dict(id=record['id'], label=record['label'], bin=record['bin'],
+                                                 material=record.get('material'),
                                                  completed_at=completed_at.isoformat()))
                 del self.recent_sorts[20:]
                 self._log_sort(record, 'DONE', completed_at)
@@ -106,9 +119,9 @@ class Bridge:
                 self.home_confirmed = False
                 self.invalidate('Arm needs attention: ' + str(detail))
 
-    def _begin_sort(self, label, bin_name, confidence=None):
+    def _begin_sort(self, label, bin_name, confidence=None, material=None):
         # Caller holds lock. One place to create pending_sort, so every path records its start time.
-        self.pending_sort = dict(id=str(uuid.uuid4()), label=label, bin=bin_name,
+        self.pending_sort = dict(id=str(uuid.uuid4()), label=label, bin=bin_name, material=material,
                                  confidence=confidence, started_at=self.clock())
         return self.pending_sort
 
@@ -120,6 +133,7 @@ class Bridge:
             started = record.get('started_at')
             self.sort_log.emit(dict(
                 time=at, sort_id=record['id'], label=record['label'], bin=record['bin'],
+                material=record.get('material'),
                 confidence=record.get('confidence'), outcome=outcome,
                 cycle_s=None if started is None else max(0.0, self.clock() - started),
                 simulated=self.simulation, detail=None if detail is None else str(detail)[:200]))
@@ -324,7 +338,9 @@ class Bridge:
                     or (result['confidence'] is not None and result['confidence'] < .8)):
                 self.status = 'Item needs review; no motion requested.'
                 return False
-            signature = (result['label'].casefold(), result['bin'])
+            # The free-text label can change wording between frames ("bottle", "clear bottle"), so a known
+            # item's fixed name keeps the duplicate guard from sorting the same object twice.
+            signature = ((result.get('item') or result['label']).casefold(), result['bin'])
             if self.continuous_sorting and self.manual_item_in_view:
                 self.manual_item_in_view = False
                 self.last_sorted_signature = signature
@@ -341,7 +357,7 @@ class Bridge:
             if self.arm.state != 'READY' or self.pending_sort is not None:
                 self.status = 'New item detected. Waiting for the arm to finish.'
                 return False
-            self._begin_sort(result['label'], result['bin'], result['confidence'])
+            self._begin_sort(result['label'], result['bin'], result['confidence'], result.get('material'))
             accepted = self.arm.sort(result['bin'])
             if accepted:
                 self.awaiting_clear = True
@@ -364,6 +380,7 @@ class Bridge:
                 route = None
             return dict(label=pred['label'] if pred else 'UNKNOWN',
                         confidence=pred['confidence'] if pred else None, bin=route,
+                        material=pred.get('material') if pred else None,
                         prediction_at=pred['prediction_at'] if pred else None,
                         arm_state=getattr(self.arm.state, 'value', self.arm.state),
                         connected=self.arm.connected, counts=dict(self.counts),

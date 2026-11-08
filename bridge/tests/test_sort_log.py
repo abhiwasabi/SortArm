@@ -75,7 +75,13 @@ class BridgeHookTests(unittest.TestCase):
     def test_history_rows_keep_their_existing_fields(self):
         self.sort()
         self.arm.finish()
-        self.assertEqual(set(self.bridge.snapshot()['recent_sorts'][0]), {'id', 'label', 'bin', 'completed_at'})
+        self.assertEqual(set(self.bridge.snapshot()['recent_sorts'][0]), {'id', 'label', 'bin', 'material', 'completed_at'})
+
+    def test_material_is_logged_with_the_sort(self):
+        self.assertTrue(self.sort(prediction(material='PLASTIC', item='Plastic bottle')))
+        self.arm.finish()
+        self.assertEqual(self.log.events[-1]['material'], 'PLASTIC')
+        self.assertEqual(self.bridge.snapshot()['recent_sorts'][0]['material'], 'PLASTIC')
 
     def test_failing_log_never_affects_sorting(self):
         class Broken:
