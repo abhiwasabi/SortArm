@@ -32,6 +32,17 @@ test('manual bins default for older bridges and preserve a configured subset and
   assert.deepEqual(normalizeState({ ...sample, bins: null }).bins, ['PAPER', 'PLASTIC', 'METAL', 'ORGANIC']);
 });
 
+test("the Swarms check is kept for the camera panel", () => {
+  const held = normalizeState({ ...sample, bin: null, swarm_check: "Swarms held this item because it can leak" });
+  assert.equal(held.swarmCheck, "Swarms held this item because it can leak");
+  const approved = normalizeState({
+    ...sample,
+    swarm_check: "Swarms approves this item because it is a dry plastic snack bag."
+  });
+  assert.equal(approved.swarmCheck, "Swarms approves this item because it is a dry plastic snack bag.");
+  assert.equal(normalizeState(sample).swarmCheck, "");
+});
+
 test("normalizes the agreed API fields without changing confirmed counts", () => {
   const state = normalizeState(sample);
   assert.equal(state.label, "Plastic bottle");
@@ -60,8 +71,16 @@ test("unknown items have no displayed bin even if an invalid API response includ
   assert.equal(derivePrediction(state, { backendOnline: true, now: state.predictionAt }).kind, "review");
 });
 
-test("an old prediction is hidden instead of being shown as current", () => {
+test("a named item stays on screen after its capture time ages", () => {
   const state = normalizeState(sample);
+  const display = derivePrediction(state, { backendOnline: true, now: state.predictionAt + 9000 });
+  assert.equal(display.kind, "detected");
+  assert.equal(display.label, "Plastic bottle");
+  assert.equal(display.bin, "PLASTIC");
+});
+
+test("an old unknown prediction is hidden instead of being shown as current", () => {
+  const state = normalizeState({ ...sample, label: "UNKNOWN", bin: null });
   const display = derivePrediction(state, { backendOnline: true, now: state.predictionAt + 9000 });
   assert.equal(display.kind, "stale");
   assert.equal(display.bin, null);
@@ -174,6 +193,15 @@ test('completed sort waits for clear instead of claiming identification is pendi
   assert.equal(result.bin, null);
 });
 
+test('a sorted item name stays after its capture time ages', () => {
+  const state = normalizeState({label:'Plastic bottle', bin:'PLASTIC',
+    prediction_at:new Date(Date.now()-20000).toISOString(), simulation:true,
+    awaiting_clear:true, sorting_enabled:true});
+  const result = derivePrediction(state, {backendOnline:true, cameraOnline:true});
+  assert.equal(result.label, 'Plastic bottle');
+  assert.equal(result.bin, 'PLASTIC');
+});
+
 test('fresh plastic result replaces old metal label while duplicate-sort protection is active', () => {
   const now = Date.now();
   const state = normalizeState({label:'Plastic bottle', bin:'PLASTIC', prediction_at:new Date(now).toISOString(), simulation:true,
@@ -181,7 +209,7 @@ test('fresh plastic result replaces old metal label while duplicate-sort protect
     recent_sorts:[{id:'can',label:'Metal can',bin:'METAL',completed_at:new Date(now-1000).toISOString()}]});
   const result = derivePrediction(state, {backendOnline:true,cameraOnline:true,now});
   assert.equal(result.label,'Plastic bottle');
-  assert.equal(result.bin,null);
+  assert.equal(result.bin,'PLASTIC');
   assert.match(result.note,/Show a different item/);
 });
 

@@ -68,6 +68,8 @@ class Bridge:
         self.last_evaluated_frame = None
         self.counts = dict.fromkeys(BINS, 0)
         self.prediction = None
+        self.display_latch = None
+        self.display_until = 0
         self.frame = None
         self.frame_at = None
         self.camera_error = None
@@ -75,6 +77,7 @@ class Bridge:
         self.camera_switching = False
         self.status = ('Home the arm; automatic sorting starts when ready.' if simulation
                        else 'Home the arm, then start sorting.')
+        self.swarm_note = None
         self.arm.on_state(self.on_state)
 
     def on_state(self, state, detail):
@@ -310,7 +313,12 @@ class Bridge:
                 return False
             self.last_evaluated_frame = captured_at
             self.prediction = dict(result, prediction_at=timestamp, captured_at=captured_at)
+            if result['item_present']:
+                self._remember_display()
             if not result['item_present']:
+                self.prediction = None
+                if not self._display_held():
+                    self.swarm_note = None
                 self.empty_samples += 1
                 if self.empty_samples >= 2:
                     self.awaiting_clear = False
@@ -354,17 +362,72 @@ class Bridge:
                 self.status = self.arm.last_rejection or 'Arm rejected sort.'
             return accepted
 
+    def set_swarm_note(self, note):
+        with self.lock:
+            self.swarm_note = note if isinstance(note, str) and note.strip() else None
+
+    def clear_displayed_item(self):
+        with self.lock:
+            if self.display_latch is not None and self.clock() >= self.display_until:
+                self.display_latch = None
+            if self._display_held():
+                self.prediction = None
+                return
+            self.prediction = None
+            self.swarm_note = None
+
+    def _display_held(self):
+        return self.display_latch is not None and self.clock() < self.display_until
+
+    def _route(self, pred):
+        if not pred or not pred['item_present'] or pred['needs_review'] or pred['label'].upper() == 'UNKNOWN':
+            return None
+        if pred['confidence'] is not None and pred['confidence'] < .8:
+            return None
+        return pred['bin']
+
+    def _remember_display(self):
+        # Caller holds lock. The first look at a named item stays up for five seconds.
+        if self._display_held():
+            return
+        pred = self.prediction
+        if not pred or not pred['item_present'] or pred['label'].upper() in ('UNKNOWN', 'EMPTY'):
+            return
+        self.display_latch = dict(label=pred['label'], confidence=pred['confidence'], bin=self._route(pred),
+                                  prediction_at=pred['prediction_at'], swarm=self.swarm_note)
+        self.display_until = self.clock() + 5
+
+    def _drop_expired_display(self):
+        if self.display_latch is None or self.clock() < self.display_until:
+            return
+        previous = self.display_latch
+        self.display_latch = None
+        pred = self.prediction
+        if not pred or not pred['item_present'] or pred['label'].upper() in ('UNKNOWN', 'EMPTY'):
+            self.swarm_note = None
+            return
+        changed = (pred['label'] != previous['label'] or self._route(pred) != previous['bin']
+                   or self.swarm_note != previous['swarm'])
+        if changed:
+            self._remember_display()
+
     def snapshot(self):
         with self.lock:
+            self._drop_expired_display()
+            held = self.display_latch if self._display_held() else None
             pred = self.prediction
-            if not self.fresh_frame() or (pred and self.clock() - pred['captured_at'] > self.max_age):
+            if not held and not self.fresh_frame():
                 pred = None
-            route = pred['bin'] if pred and pred['item_present'] and not pred['needs_review'] and pred['label'].upper() != 'UNKNOWN' else None
-            if pred and pred['confidence'] is not None and pred['confidence'] < .8:
-                route = None
-            return dict(label=pred['label'] if pred else 'UNKNOWN',
-                        confidence=pred['confidence'] if pred else None, bin=route,
-                        prediction_at=pred['prediction_at'] if pred else None,
+            if held:
+                label, confidence, route = held['label'], held['confidence'], held['bin']
+                prediction_at, swarm = held['prediction_at'], held['swarm']
+            else:
+                route = self._route(pred)
+                label = pred['label'] if pred else 'UNKNOWN'
+                confidence = pred['confidence'] if pred else None
+                prediction_at = pred['prediction_at'] if pred else None
+                swarm = self.swarm_note
+            return dict(label=label, confidence=confidence, bin=route, prediction_at=prediction_at,
                         arm_state=getattr(self.arm.state, 'value', self.arm.state),
                         connected=self.arm.connected, counts=dict(self.counts),
                         bins=list(self.allowed_bins),
@@ -376,4 +439,5 @@ class Bridge:
                         camera_error=self.camera_error,
                         vision_ready=self.vision_ready, sorting_enabled=self.enabled,
                         status=self.status, arm_detail=self.arm.detail,
+                        swarm_check=swarm,
                         awaiting_clear=self.awaiting_clear)

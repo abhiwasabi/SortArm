@@ -43,6 +43,8 @@ export GEMINI_MODEL='your-supported-image-model-id'
 
 Set keys in your shell environment; never put them in `web/`, a URL, or Git. This mode sends camera images to the configured Gemini API when sorting is enabled. The model ID is explicit rather than hardcoded. The request uses Gemini's `generateContent` REST API with image input and a structured schema.
 
+An optional Swarms check runs after Gemini names an item. Set `SWARMS_API_KEY` from [cloud.swarms.world/api-keys](https://cloud.swarms.world/api-keys). Two agents then decide whether the gripper should pick that named object up. A clear "unsafe" answer clears the bin, the arm stays still, and the dashboard says why, for example a battery, broken glass, a blade, a spilling liquid, a needle, or a chemical. A clear "safe" answer keeps Gemini's bin and the dashboard says why the item was approved. With no key, or if Swarms is slow or returns something unreadable, the arm follows Gemini. The camera image is not sent to Swarms.
+
 ## Auth0 operator login
 
 Opening the dashboard requires an Auth0 login before the sorter can start. A saved browser session does not skip that screen. `python -m bridge` uses the project tenant when `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, and `AUTH0_AUDIENCE` are unset: `dev-ilye6s18ng7ernps.us.auth0.com`, client `rd4I86eUTelgHzFYI9mCdeRgAq0bAz8a`, and audience `https://sharkbyte.local/api`. Set all three together only to point at a different tenant. A partial set fails startup. No client secret is stored. `--no-auth` is the only skip, and it is for an offline trial.
