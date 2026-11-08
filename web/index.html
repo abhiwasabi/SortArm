@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-operator="false">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -16,7 +16,7 @@
 <div class="app-shell">
   <aside class="sidebar" aria-label="Dashboard navigation">
     <a class="sidebar-brand" href="#overview" aria-label="Sort Arm Dashboard">
-      <span class="logo-mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><rect x="20" y="6" width="8" height="9" rx="2" fill="#fff"/><path d="M24 16v8m0 0-12 7m12-7 12 7" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><rect x="6" y="31" width="15" height="10" rx="3" fill="#dfeee0"/><rect x="27" y="31" width="15" height="10" rx="3" fill="#ec8a72"/></svg></span>
+      <span class="logo-mark" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M4 43h20M9 43v-7h10v7M14 36l-5-16 12-11 15 12v6" stroke="currentColor" stroke-width="4" stroke-linecap="square" stroke-linejoin="round"/><circle cx="9" cy="20" r="4" fill="currentColor"/><circle cx="21" cy="9" r="4" fill="currentColor"/><path d="M30 27v6l3 3m9-9v6l-3 3M30 27h12" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/><rect x="33" y="39" width="7" height="7" fill="currentColor"/></svg></span>
       <span class="logo-wordmark">sortarm<span>.</span></span>
     </a>
     <div class="sidebar-menu">
@@ -24,7 +24,7 @@
       <nav class="side-nav" aria-label="Sections">
         <a class="nav-link active" href="#overview" aria-current="location"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg><span>Overview</span></a>
         <a class="nav-link" href="#camera"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="6" width="13" height="12" rx="2"/><path d="m16.5 10 4-2.5v9L16.5 14"/></svg><span>Camera</span></a>
-        <a class="nav-link" href="#arm"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 20h18M7 20v-4h8v4M9 16l-2-6 5-3 4 6-4 3M12 7l3-4 5 4-3 4"/></svg><span>Arm status</span></a>
+        <a class="nav-link" href="#arm"><svg class="arm-nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2 22h10M5 22v-4h4v4M7 18 4 10l6-6 8 6v4M15 14v3l2 2m4-5v3l-2 2M15 14h6"/><circle cx="4" cy="10" r="1.5"/><circle cx="10" cy="4" r="1.5"/></svg><span>Arm status</span></a>
         <a class="nav-link" href="#bins"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M8 7V4h8v3M6 7l1 13h10l1-13M10 10v7M14 10v7"/></svg><span>Bin totals</span></a>
       </nav>
     </div>
@@ -52,6 +52,16 @@
 
     <main class="content">
       <p id="notice" class="notice" role="status" aria-live="polite" hidden></p>
+      <section id="operatorPanel" class="operator-panel" aria-labelledby="operatorTitle" hidden>
+        <div><p class="small-label">PUBLIC DASHBOARD</p><h2 id="operatorTitle">Operator access</h2><p id="operatorStatus" role="status">Viewing only. STOP is available to everyone.</p></div>
+        <form id="operatorLoginForm" class="operator-login" method="post" action="/api/login" autocomplete="on">
+          <label for="operatorPassword">Operator password</label>
+          <input id="operatorPassword" name="password" type="password" autocomplete="current-password" required>
+          <button id="operatorLoginButton" class="control-button" type="submit">Log in</button>
+        </form>
+        <button id="operatorLogoutButton" class="control-button" type="button" hidden>Log out</button>
+        <p id="operatorMessage" class="operator-message" role="status" aria-live="polite" hidden></p>
+      </section>
 
       <div id="overview" class="overview-view">
         <section class="overview-card" aria-labelledby="pageTitle">
@@ -80,10 +90,15 @@
               </section>
               <section class="inner-card arm-panel" id="arm" aria-labelledby="armTitle">
                 <div class="card-heading"><div><p class="small-label">MOTION</p><h2 id="armTitle">Robotic arm</h2></div><span id="armBadge" class="soft-badge" data-tone="neutral">UNKNOWN</span></div>
-                <div class="arm-state-wrap"><span class="arm-state-icon" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><path d="M5 41h38M12 41v-7h15v7M18 34l-3-12 9-5 7 12-7 5M23 17l7-7 10 8-7 7" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="15" cy="22" r="2.5" fill="currentColor"/><circle cx="33" cy="25" r="2.5" fill="currentColor"/></svg></span><div><span class="small-label">CONTROLLER STATE</span><strong id="armState" class="arm-state" aria-live="polite">Waiting</strong><p id="armDescription">Checking the arm connection.</p></div></div>
+                <div class="arm-state-wrap"><span class="arm-state-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 22h10M5 22v-4h4v4M7 18 4 10l6-6 8 6v4M15 14v3l2 2m4-5v3l-2 2M15 14h6"/><circle cx="4" cy="10" r="1.5"/><circle cx="10" cy="4" r="1.5"/></svg></span><div><span class="small-label">CONTROLLER STATE</span><strong id="armState" class="arm-state" aria-live="polite">Waiting</strong><p id="armDescription">Checking the arm connection.</p></div></div>
                 <div class="bridge-controls" id="bridgeControls" hidden>
                   <button id="homeButton" class="control-button" type="button" disabled>Home arm</button>
                   <button id="sortingButton" class="control-button" type="button" disabled>Start sorting</button>
+                  <section id="manualSortCard" class="manual-sort-card" aria-labelledby="manualSortTitle" hidden>
+                    <h3 id="manualSortTitle">Manual sort (moves the arm)</h3>
+                    <p>Pause automatic sorting, then choose a bin. No camera or recognition is needed.</p>
+                    <div id="manualSortButtons" class="manual-sort-buttons"></div>
+                  </section>
                 </div>
                 <p id="bridgeStatus" class="bridge-status" role="status" hidden></p>
                 <p class="safety-note">Keep the physical power cutoff within reach.</p>

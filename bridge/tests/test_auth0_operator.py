@@ -1,6 +1,7 @@
 import http.client
 import importlib.util
 import json
+import os
 import sys
 import threading
 import time
@@ -10,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from bridge.auth0_operator import Auth0Config, Auth0Verifier, AuthError
-from bridge.server import make_server
+from bridge.server import OperatorAuth, make_server
 
 
 class Auth0ConfigTests(unittest.TestCase):
@@ -31,6 +32,45 @@ class Auth0ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'hostname'):
             Auth0Config.from_env({'AUTH0_DOMAIN': 'https://example.us.auth0.com',
                                   'AUTH0_CLIENT_ID': 'abc', 'AUTH0_AUDIENCE': 'https://sorter'})
+
+    def test_local_server_stays_open_when_auth0_environment_is_set(self):
+        bridge = SimpleNamespace(snapshot=lambda: {'arm_state': 'READY'})
+        web = Path(__file__).resolve().parents[2] / 'web'
+        env = {'AUTH0_DOMAIN': 'example.us.auth0.com', 'AUTH0_CLIENT_ID': 'abc',
+               'AUTH0_AUDIENCE': 'https://sorter'}
+        with patch.dict(os.environ, env, clear=False):
+            local = make_server(bridge, web, 0, auth=False)
+            public = make_server(
+                bridge, web, 0, auth=SimpleNamespace(config=Auth0Config.for_runtime({})),
+                public=True, public_host='paul.tail0e5a35.ts.net',
+                operator_auth=OperatorAuth('password12'))
+        threads = [threading.Thread(target=server.serve_forever, daemon=True)
+                   for server in (local, public)]
+        for thread in threads:
+            thread.start()
+        try:
+            local_status, local_body = self._read(local, '/api/auth-config')
+            public_status, public_body = self._read(public, '/api/auth-config')
+        finally:
+            for server in (local, public):
+                server.shutdown()
+                server.server_close()
+            for thread in threads:
+                thread.join(timeout=3)
+        self.assertEqual(local_status, 200)
+        self.assertEqual(local_body, {'enabled': False, 'public': False})
+        self.assertEqual(public_status, 200)
+        self.assertTrue(public_body['enabled'])
+        self.assertTrue(public_body['public'])
+        self.assertEqual(public_body['audience'], 'https://sharkbyte.local/api')
+
+    def _read(self, server, path):
+        connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=3)
+        connection.request('GET', path)
+        response = connection.getresponse()
+        body = json.loads(response.read())
+        connection.close()
+        return response.status, body
 
     def test_verifier_requires_audience_issuer_signature_and_operator_permission(self):
         captured = {}

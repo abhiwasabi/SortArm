@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('./auth0.mjs', import.meta.url), 'utf8');
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-function harness(config, authenticated = false) {
+function harness(config, authenticated = false, { tokenError = false } = {}) {
   const nodes = new Map();
   const element = id => {
     if (!nodes.has(id)) nodes.set(id, {hidden: false, disabled: false, textContent: '',
@@ -14,24 +14,27 @@ function harness(config, authenticated = false) {
     return nodes.get(id);
   };
   const calls = [];
+  let issuedToken = false;
   const window = {
     fetch: async (url, options = {}) => {
       calls.push({url, options});
       return {ok: true, json: async () => url === '/api/operator'
         ? {authorized: true, sub: 'operator'} : config};
     },
-    auth0: {createAuth0Client: async (options) => {
-      calls.push({url: 'create', options});
-      return {
-        isAuthenticated: async () => authenticated,
-        getUser: async () => ({name: 'Test Operator'}),
-        getTokenSilently: async () => 'signed-token',
-        loginWithRedirect: async (request) => { calls.push({url: 'login', request}); },
-        logout: () => { calls.push({url: 'logout'}); }
-      };
-    }}
+    auth0: {createAuth0Client: async () => ({
+      isAuthenticated: async () => authenticated,
+      getUser: async () => ({name: 'Test Operator'}),
+      getTokenSilently: async () => {
+        if (tokenError && issuedToken) throw new Error('no token');
+        issuedToken = true;
+        return 'signed-token';
+      },
+      loginWithRedirect: async () => { calls.push({url: 'login'}); },
+      logout: () => { calls.push({url: 'logout'}); }
+    })}
   };
   const document = {getElementById: element, querySelector: () => element('content'),
+    documentElement: {dataset: {}},
     head: {append(script) { script.onload(); }},
     createElement: () => ({})};
   const context = vm.createContext({window, document, URL, URLSearchParams, Headers,
@@ -56,14 +59,12 @@ test('configured Auth0 hides controls until signed in and leaves STOP public', a
   await signedOut.ready;
   assert.equal(signedOut.element('content').hidden, true);
   assert.equal(signedOut.element('authGate').hidden, false);
-  await assert.rejects(() => signedOut.window.fetch('/api/home', {method: 'POST'}), /Sign in/);
+  await signedOut.window.fetch('/api/home', {method: 'POST'});
+  assert.equal(signedOut.calls.at(-1).url, '/api/home');
+  assert.equal(signedOut.calls.at(-1).options.headers, undefined);
   await signedOut.window.fetch('/api/stop', {method: 'POST'});
   assert.equal(signedOut.calls.at(-1).options.headers, undefined);
-  const created = signedOut.calls.find((call) => call.url === 'create');
-  assert.equal(created.options.cacheLocation, 'memory');
-  assert.equal(created.options.useRefreshTokens, false);
-  const prompted = signedOut.calls.find((call) => call.url === 'login');
-  assert.equal(prompted.request.authorizationParams.prompt, 'login');
+  assert.equal(signedOut.calls.some((call) => call.url === 'login'), false);
   await signedOut.element('authSignIn').listeners.click();
   assert.equal(signedOut.calls.at(-1).url, 'login');
 
@@ -75,4 +76,52 @@ test('configured Auth0 hides controls until signed in and leaves STOP public', a
   assert.equal(signedIn.calls.at(-1).options.headers.get('Authorization'), 'Bearer signed-token');
   signedIn.element('authSignOut').listeners.click();
   assert.equal(signedIn.calls.at(-1).url, 'logout');
+});
+
+test('public Auth0 keeps the dashboard visible and sends the token only on operator reads', async () => {
+  const config = {enabled: true, public: true, domain: 'example.us.auth0.com', clientId: 'client', audience: 'https://sorter'};
+  const signedOut = harness(config);
+  await signedOut.ready;
+  assert.equal(signedOut.element('content').hidden, false);
+  assert.equal(signedOut.element('authGate').hidden, false);
+  assert.equal(signedOut.element('authBar').hidden, true);
+  assert.equal(signedOut.element('authMessage').textContent,
+    'Sign in with Auth0 to control the sorter. Viewing and STOP need no login.');
+  assert.equal(signedOut.calls.some((call) => call.url === 'login'), false);
+  await signedOut.window.fetch('/api/login', {method: 'POST'});
+  assert.equal(signedOut.calls.at(-1).url, '/api/login');
+  assert.equal(signedOut.calls.at(-1).options.headers, undefined);
+  await signedOut.window.fetch('/api/home', {method: 'POST'});
+  assert.equal(signedOut.calls.at(-1).url, '/api/home');
+  assert.equal(signedOut.calls.at(-1).options.headers, undefined);
+  await signedOut.window.fetch('/api/state');
+  assert.equal(signedOut.calls.at(-1).options.headers, undefined);
+
+  const signedIn = harness(config, true);
+  await signedIn.ready;
+  assert.equal(signedIn.element('content').hidden, false);
+  assert.equal(signedIn.element('authGate').hidden, true);
+  assert.equal(signedIn.element('authBar').hidden, false);
+  assert.equal(signedIn.element('authIdentity').textContent, 'Test Operator');
+  for (const path of ['/api/state', '/api/cameras', '/api/gemini']) {
+    await signedIn.window.fetch(path);
+    assert.equal(signedIn.calls.at(-1).options.headers.get('Authorization'), 'Bearer signed-token');
+  }
+  for (const path of ['/api/stop', '/api/frame.jpg', '/api/auth-config', '/api/operator']) {
+    await signedIn.window.fetch(path, path === '/api/stop' ? {method: 'POST'} : {});
+    assert.equal(signedIn.calls.at(-1).options.headers, undefined);
+  }
+
+  await signedIn.window.fetch('/api/login', {method: 'POST'});
+  assert.equal(signedIn.calls.at(-1).options.headers, undefined);
+  await signedIn.window.fetch('/api/home', {method: 'POST'});
+  assert.equal(signedIn.calls.at(-1).options.headers.get('Authorization'), 'Bearer signed-token');
+
+  const unread = harness(config, true, {tokenError: true});
+  await unread.ready;
+  await unread.window.fetch('/api/state');
+  assert.equal(unread.calls.at(-1).options.headers, undefined);
+  await unread.window.fetch('/api/home', {method: 'POST'});
+  assert.equal(unread.calls.at(-1).url, '/api/home');
+  assert.equal(unread.calls.at(-1).options.headers, undefined);
 });

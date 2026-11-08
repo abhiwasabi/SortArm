@@ -104,7 +104,41 @@ arm.close()              # on shutdown: stops motion, refuses new commands, then
 
 ### Bridge → dashboard (#16 → #15)
 
-`GET /api/state` returns `label`, `confidence`, `bin`, `arm_state` (READY/BUSY/DONE/ERROR), `connected`, and `counts` with exactly the keys `PAPER`, `PLASTIC`, `METAL`, `ORGANIC`. It may include an optional `prediction_at` (ISO 8601) and `recent_sorts` (completed sorts, added from the DONE callback). `GET /api/frame.jpg` returns the latest frame. `POST /api/stop` must call `arm.stop()`. Full example: `web/README.md`.
+The bridge serves `web/` and this API on `127.0.0.1` only. POST requests must send a JSON object body; the Host and Origin headers are checked.
+
+| Endpoint | Body | Response | Moves the arm? |
+| --- | --- | --- | --- |
+| `GET /api/state` | — | The current state (fields below) | No |
+| `GET /api/frame.jpg` | — | Latest camera frame, or 503 | No |
+| `GET /api/cameras` | — | `{devices: [{id, name, index}]}` | No |
+| `GET /api/gemini` | — | `{configured, model}` | No |
+| `POST /api/stop` | `{}` | `{accepted: true, state}`; always accepted | Stops it: `arm.stop()` |
+| `POST /api/home` | `{}` | 200 `{accepted, state}`, or 409 `{accepted: false, error, state}` with the arm's reason | Yes: `arm.home()`; pauses auto-sorting |
+| `POST /api/sort` | `{"bin": "PAPER"}` | 200; 409 with `error` (the arm's reason, or "the previous sort is still finishing"); or 400 for an unknown bin or while auto-sorting is on | Yes: a manual `arm.sort(bin)`. Needs no camera or vision; counted on DONE as `"Manual"` |
+| `POST /api/sorting` | `{"enabled": true\|false}` | 200, or 400 with the reason start was refused | Indirectly: while enabled, each confident vision result triggers `arm.sort(bin)` |
+| `POST /api/camera` | `{source: "mock"\|"usb"\|"esp32"\|"off", url?, index?, device_id?}` | 200 or 400 | No (pauses auto-sorting) |
+| `POST /api/mock` | `{scenario}` | 200 or 400 (simulation only) | No |
+| `POST /api/gemini` | `{key, model?}` or `{disconnect: true}` | `{configured, model}` | No (pauses auto-sorting) |
+
+`GET /api/state` returns `label`, `confidence`, `bin`, `arm_state` (READY/BUSY/DONE/ERROR), `arm_detail` (the error text, or the running command while BUSY), `connected`, `bins` (the allowed bins, in order), and `counts` with exactly the keys `PAPER`, `PLASTIC`, `METAL`, `ORGANIC`. It also carries `recent_sorts` (completed sorts, added from the DONE callback), `sorting_enabled`, `status`, the camera and vision fields, an optional `prediction_at` (ISO 8601), and `public` / `operator` (see Online access). Details and examples: `web/README.md` and `bridge/README.md`.
+
+### Online access (#36)
+
+The site goes online through **Tailscale Funnel** while the arm stays on the laptop. Full steps: [docs/RUN_ONLINE.md](docs/RUN_ONLINE.md).
+
+- **Two ports** on `127.0.0.1` share one bridge and arm:
+  - the **local port** (4173): unchanged, no password, never exposed;
+  - the **public port** (`--public-port`, e.g. 4174): the only one given to Funnel, and it always enforces the operator session.
+  - Funnel traffic arrives from the laptop itself, so address or Host can't separate remote viewers from the local operator.
+- **On the public port, without logging in:** the dashboard, `GET /api/state`, `GET /api/frame.jpg`, `GET /api/gemini`, `GET /api/sort-history`, `GET /api/auth-config`, `GET /api/operator`, and **`POST /api/stop`**. Anyone watching can stop the arm.
+- **Operator only** (`POST /api/login` with the password from env `BRIDGE_OPERATOR_PASSWORD`): home, sort, sorting, camera, mock, Gemini changes, and `GET /api/cameras`. Without a session these return 401.
+  - The session is an HttpOnly, Secure, SameSite=Strict cookie. Logout from one browser ends every operator session.
+  - Failed logins are remembered until a correct password. The wait starts at 60 seconds and doubles, up to 15 minutes. The local port has no lockout.
+  - Host and Origin are checked against `--public-host`.
+  - Stopping the bridge closes both ports without waiting for a stuck request.
+- **`/api/state.public`** is true on the public port. **`/api/state.operator`** is true on the local port, or with a valid session. The dashboard disables every control except STOP for viewers.
+
+One `Handler.access()` check covers every protected POST and GET: a verified Auth0 token with `sorter:operate` is allowed; a token without the permission returns 403 `Operator permission required`; otherwise a public-port password session is allowed; a local port with no Auth0 verifier stays open; anything else returns 401 `Operator login required`.
 
 ## Hardware
 

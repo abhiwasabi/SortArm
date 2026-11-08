@@ -6,7 +6,10 @@ const refresh = document.getElementById('refreshCameraDevices');
 const help = document.getElementById('cameraDeviceHelp');
 const apply = document.getElementById('applyCameraButton');
 let requestSequence = 0;
+let cameraRequest = null;
+const operatorAccess = () => !previewMode && document.documentElement?.dataset.operator !== 'false';
 async function loadCameras({restoreActive = false} = {}) {
+  if (!operatorAccess()) return;
   const sequence = ++requestSequence;
   let kind = source.value;
   select.value = '';
@@ -14,10 +17,17 @@ async function loadCameras({restoreActive = false} = {}) {
   apply.disabled = true;
   help.textContent = 'Looking for connected cameras…';
   const controller = new AbortController();
+  cameraRequest = controller;
   const timeout = setTimeout(() => controller.abort(), 10000);
   try {
     const response = await fetch('/api/cameras', {signal: controller.signal});
     const data = await response.json();
+    if (sequence !== requestSequence) return;
+    if (response.status === 401) {
+      help.textContent = 'Operator login required';
+      document.dispatchEvent(new Event('operator-required'));
+      return;
+    }
     if (!response.ok) throw new Error(data.error || 'Camera list unavailable.');
     if (sequence !== requestSequence) return;
     if (restoreActive) {
@@ -43,7 +53,7 @@ async function loadCameras({restoreActive = false} = {}) {
   } finally {
     clearTimeout(timeout);
     if (sequence === requestSequence) {
-      refresh.disabled = false;
+      refresh.disabled = !operatorAccess();
       source.dispatchEvent(new Event('change'));
     }
   }
@@ -55,7 +65,16 @@ source.addEventListener('change', () => {
   if (source.value !== lastKind) {
     lastKind = source.value;
     if (['usb', 'iphone'].includes(lastKind)) loadCameras();
-    else { requestSequence += 1; refresh.disabled = false; }
+    else { requestSequence += 1; refresh.disabled = !operatorAccess(); }
   }
 });
-if (!previewMode) loadCameras({restoreActive: true});
+document.addEventListener?.('operator-access', () => {
+  if (operatorAccess()) loadCameras({restoreActive: true});
+  else {
+    requestSequence++;
+    cameraRequest?.abort();
+    select.value = '';
+    refresh.disabled = apply.disabled = true;
+  }
+});
+if (operatorAccess()) loadCameras({restoreActive: true});
