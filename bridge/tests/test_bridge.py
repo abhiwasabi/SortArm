@@ -199,6 +199,43 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(state['counts']['METAL'], 0)
         self.assertEqual([row['id'] for row in state['recent_sorts']], [running['id']])
 
+    def test_manual_sort_done_emits_one_log_row_with_cycle_time(self):
+        sort_log = Mock()
+        self.bridge.sort_log = sort_log
+        self.bridge.set_sorting(False)
+        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        sort_log.emit.assert_not_called()
+        self.now += 2.5
+        self.arm.finish()
+        self.arm.emit('DONE', 'SORT PAPER')
+        sort_log.emit.assert_called_once()
+        event = sort_log.emit.call_args.args[0]
+        self.assertEqual(event['label'], 'Manual')
+        self.assertEqual(event['bin'], 'PAPER')
+        self.assertEqual(event['outcome'], 'DONE')
+        self.assertEqual(event['cycle_s'], 2.5)
+        self.assertIsNone(event['confidence'])
+        self.assertEqual(self.bridge.counts['PAPER'], 1)
+
+    def test_stop_during_manual_sort_emits_stopped_without_incrementing_counts(self):
+        sort_log = Mock()
+        self.bridge.sort_log = sort_log
+        self.bridge.set_sorting(False)
+        before = dict(self.bridge.counts)
+        self.assertTrue(self.bridge.manual_sort('PAPER'))
+        self.now += 1.5
+        self.assertTrue(self.bridge.stop())
+        self.arm.finish()  # a delayed DONE cannot count or log the interrupted sort
+        sort_log.emit.assert_called_once()
+        event = sort_log.emit.call_args.args[0]
+        self.assertEqual(event['label'], 'Manual')
+        self.assertEqual(event['bin'], 'PAPER')
+        self.assertEqual(event['outcome'], 'STOPPED')
+        self.assertEqual(event['cycle_s'], 1.5)
+        self.assertIsNone(event['confidence'])
+        self.assertEqual(self.bridge.counts, before)
+        self.assertEqual(self.bridge.recent_sorts, [])
+
     def test_manual_sort_waits_until_the_finished_sort_is_counted(self):
         # The real arm reports READY just before its DONE notification reaches the bridge.
         self.bridge.set_sorting(False)

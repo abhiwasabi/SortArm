@@ -14,7 +14,7 @@ const sample = { label: 'Plastic bottle', confidence: .94, bin: 'PLASTIC',
   connected: true, arm_state: 'BUSY',
   counts: { PAPER: 3, PLASTIC: 4, METAL: 2, ORGANIC: 1 } };
 
-function harness(search = '', { modules = false } = {}) {
+function harness(search = '', { modules = false, auth0 = false } = {}) {
   const elements = new Map();
   const requests = [];
   const timers = new Map();
@@ -49,7 +49,7 @@ function harness(search = '', { modules = false } = {}) {
     sessionStorage: { setItem: (...args) => storageWrites.push(args) },
     window: { location: { search } }, location: { search },
     document: { baseURI: 'http://127.0.0.1:4173/', getElementById: element, createElement: makeElement,
-      documentElement: { dataset: { operator: 'false' } },
+      documentElement: { dataset: auth0 ? { operator: 'false', auth0: 'true' } : { operator: 'false' } },
       addEventListener: (...args) => events.addEventListener(...args),
       dispatchEvent: event => events.dispatchEvent(event) },
     setTimeout(fn, ms) { timers.set(++timerId, { fn, ms }); return timerId; },
@@ -106,6 +106,16 @@ test('public viewers cannot operate controls; public operators and local users r
       assert.equal(h.requests.length, 1);
     }
   }
+});
+
+test('public Auth0 tells a viewer they can sign in above the password form', async () => {
+  const h = harness('', { auth0: true });
+  await h.respond(0, { ...sample, public: true, operator: false, sorting_enabled: false });
+  assert.equal(h.element('operatorStatus').textContent,
+    'Viewing only. STOP is available to everyone, or sign in with Auth0 above.');
+  assert.equal(h.element('operatorPanel').hidden, false);
+  assert.equal(h.element('homeButton').disabled, true);
+  assert.equal(h.element('stopButton').disabled, false);
 });
 
 test('a viewer can send STOP without logging in', async () => {

@@ -155,10 +155,15 @@ Use your actual Funnel hostname for `--public-host`; it is required whenever
 `--public-port` is set. Missing or short passwords exit with status 2 before opening
 the camera or arm. Startup prints both URLs without printing the password.
 
-Public visitors can load the dashboard, read `GET /api/state`, `GET /api/frame.jpg`
-and `GET /api/gemini`, and use **STOP** without logging in. STOP is deliberately
+Public visitors can load the dashboard, read `GET /api/state`, `GET /api/frame.jpg`, `GET /api/gemini`, `GET /api/sort-history`, `GET /api/auth-config` and `GET /api/operator`, and use **STOP** without logging in. STOP is deliberately
 open to everyone. HOME, manual sort, start/pause sorting, camera selection, mock
 selection, Gemini changes, and `GET /api/cameras` require login.
+
+One `Handler.access()` check decides operator access for protected POSTs and GETs.
+A verified Auth0 token with `sorter:operate` is allowed; a token without the
+permission returns 403 `Operator permission required`; otherwise a public-port
+password session is allowed; a local port with no Auth0 verifier stays open; every
+other request returns 401 `Operator login required`.
 
 `POST /api/login` accepts JSON `{"password":"..."}` and sets an HttpOnly, Secure,
 SameSite=Strict `sorter_session` cookie for 12 hours. Use the public HTTPS URL for

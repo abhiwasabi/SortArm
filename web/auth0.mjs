@@ -11,12 +11,14 @@ const content = document.querySelector('.content');
 const originalFetch = window.fetch.bind(window);
 let authClient = null;
 let authEnabled = false;
+let publicViewer = false;
 let operatorAuthorized = false;
 let authReady;
 
 function showGate(message, authenticated = false) {
   authGate.hidden = authenticated || !authEnabled;
-  content.hidden = authEnabled && !authenticated;
+  // Public viewers always see the dashboard. Local Auth0 still covers it until sign-in.
+  content.hidden = publicViewer ? false : authEnabled && !authenticated;
   authBar.hidden = !authEnabled || !authenticated;
   authSignIn.hidden = authenticated;
   authGateSignOut.hidden = true;
@@ -44,6 +46,8 @@ async function initializeAuth() {
     return;
   }
   authEnabled = true;
+  publicViewer = config.public === true;
+  if (publicViewer && document.documentElement) document.documentElement.dataset.auth0 = 'true';
   showGate('Checking operator login…');
   await loadSdk();
   authClient = await window.auth0.createAuth0Client({
@@ -72,7 +76,9 @@ async function initializeAuth() {
     authIdentity.textContent = user?.name || user?.email || 'Operator';
     showGate('', true);
   } else {
-    showGate('Sign in to control the sorter. STOP remains available.');
+    showGate(publicViewer
+      ? 'Sign in with Auth0 to control the sorter. Viewing and STOP need no login.'
+      : 'Sign in to control the sorter. STOP remains available.');
   }
 }
 
@@ -101,21 +107,45 @@ authReady = initializeAuth().catch(() => {
   authSignIn.hidden = true;
 });
 
-// Preserve the existing dashboard fetch calls while adding a token only to protected API writes.
+const openPaths = new Set([
+  '/api/stop', '/api/frame.jpg', '/api/auth-config', '/api/operator', '/api/login', '/api/logout'
+]);
+const tokenGetPaths = new Set(['/api/state', '/api/cameras', '/api/gemini']);
+
+function withToken(options, token) {
+  const headers = new Headers(options.headers || {});
+  headers.set('Authorization', 'Bearer ' + token);
+  return {...options, headers};
+}
+
+// Password login and logout stay open. Other API calls get a token only when Auth0
+// is already authorized. A missing or failed token still sends the request, so the
+// bridge can accept a password cookie.
 window.fetch = async (input, options = {}) => {
   const url = new URL(typeof input === 'string' ? input : input.url, location.href);
   const method = (options.method || (typeof input !== 'string' && input.method) || 'GET').toUpperCase();
-  if (url.origin !== location.origin || method !== 'POST' ||
-      !url.pathname.startsWith('/api/') || url.pathname === '/api/stop') {
+  if (url.origin !== location.origin || !url.pathname.startsWith('/api/') || openPaths.has(url.pathname)) {
     return originalFetch(input, options);
   }
-  await authReady;
-  if (!authEnabled) return originalFetch(input, options);
-  if (!authClient || !operatorAuthorized || !(await authClient.isAuthenticated())) {
-    throw new Error('Sign in as an operator before using this control.');
+  const sendPlain = () => originalFetch(input, options);
+  if (method === 'GET') {
+    if (!tokenGetPaths.has(url.pathname)) return sendPlain();
+    await authReady;
+    if (!operatorAuthorized || !authClient) return sendPlain();
+    try {
+      if (!(await authClient.isAuthenticated())) return sendPlain();
+      return originalFetch(input, withToken(options, await authClient.getTokenSilently()));
+    } catch {
+      return sendPlain();
+    }
   }
-  const token = await authClient.getTokenSilently();
-  const headers = new Headers(options.headers || {});
-  headers.set('Authorization', 'Bearer ' + token);
-  return originalFetch(input, {...options, headers});
+  if (method !== 'POST') return sendPlain();
+  await authReady;
+  if (!authEnabled || !authClient || !operatorAuthorized) return sendPlain();
+  try {
+    if (!(await authClient.isAuthenticated())) return sendPlain();
+    return originalFetch(input, withToken(options, await authClient.getTokenSilently()));
+  } catch {
+    return sendPlain();
+  }
 };

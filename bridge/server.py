@@ -135,8 +135,23 @@ class Handler(SimpleHTTPRequestHandler):
     def send_json(self, status, data, *, headers=None):
         self.send_data(status, json.dumps(data).encode(), 'application/json', headers=headers)
 
+    def access(self):
+        authorization = self.headers.get('Authorization')
+        if self.auth is not None and authorization is not None:
+            try:
+                self.auth.verify(authorization)
+                return None
+            except AuthError as exc:
+                if exc.status == 403:
+                    return 403, 'Operator permission required'
+        if self.public and self.operator_auth.valid_session(self.headers.get('Cookie')):
+            return None
+        if not self.public and self.auth is None:
+            return None
+        return 401, 'Operator login required'
+
     def operator(self):
-        return not self.public or self.operator_auth.valid_session(self.headers.get('Cookie'))
+        return self.access() is None
 
     def state(self, *, operator=None):
         return dict(self.bridge.snapshot(), public=self.public,
@@ -169,7 +184,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(403, {'error': 'Use the local dashboard URL'})
         path = urlsplit(self.path).path
         if path == '/api/auth-config':
-            return self.send_json(200, self.auth.config.public() if self.auth else {'enabled': False})
+            config = self.auth.config.public() if self.auth else {'enabled': False}
+            return self.send_json(200, dict(config, public=self.public))
         if path == '/api/operator' and self.auth is not None:
             try:
                 claims = self.auth.verify(self.headers.get('Authorization'))
@@ -177,9 +193,12 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(exc.status, {'authorized': False})
             return self.send_json(200, {'authorized': True, 'sub': claims['sub']})
         if (self.public and path.startswith('/api/')
-                and path not in ('/api/state', '/api/frame.jpg', '/api/gemini', '/api/sort-history')
-                and not self.operator()):
-            return self.send_json(401, {'error': 'Operator login required'})
+                and path not in ('/api/state', '/api/frame.jpg', '/api/gemini', '/api/sort-history',
+                                 '/api/auth-config', '/api/operator')):
+            denied = self.access()
+            if denied is not None:
+                status, message = denied
+                return self.send_json(status, {'error': message})
         if path == '/api/cameras':
             try:
                 from .camera_devices import enumerate_camera_devices
@@ -233,15 +252,11 @@ class Handler(SimpleHTTPRequestHandler):
                 or self.headers.get('Sec-Fetch-Site') == 'cross-site'):
             return self.send_json(403, {'error': 'Use controls on the local dashboard'})
         path = urlsplit(self.path).path
-        if self.auth is not None and path != '/api/stop':
-            try:
-                self.auth.verify(self.headers.get('Authorization'))
-            except AuthError as exc:
-                return self.send_json(exc.status, {'error': 'Operator login required' if exc.status == 401
-                                                   else 'Operator permission required'})
-        if (self.public and path not in ('/api/stop', '/api/login', '/api/logout')
-                and not self.operator()):
-            return self.send_json(401, {'error': 'Operator login required'})
+        if path != '/api/stop' and not (self.public and path in ('/api/login', '/api/logout')):
+            denied = self.access()
+            if denied is not None:
+                status, message = denied
+                return self.send_json(status, {'error': message})
         try:
             length = int(self.headers.get('Content-Length', '0'))
             if length < 0 or length > 4096 or self.headers.get('Transfer-Encoding'):

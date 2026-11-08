@@ -120,8 +120,12 @@ function renderOperator() {
   ui.operatorPanel.hidden = !publicMode;
   ui.operatorLoginForm.hidden = !publicMode || snapshot.operator;
   ui.operatorLogoutButton.hidden = !publicMode || !snapshot.operator;
+  const auth0Hint = document.documentElement?.dataset.auth0 === "true";
   ui.operatorStatus.textContent = snapshot?.operator
-    ? "Logged in as operator" : "Viewing only. STOP is available to everyone.";
+    ? "Logged in as operator"
+    : auth0Hint
+      ? "Viewing only. STOP is available to everyone, or sign in with Auth0 above."
+      : "Viewing only. STOP is available to everyone.";
   ui.operatorLoginButton.disabled = ui.operatorPassword.disabled = operatorPending || !backendOnline;
   ui.operatorLogoutButton.disabled = operatorPending || !backendOnline;
   ui.geminiSettings.hidden = !operatorAvailable();

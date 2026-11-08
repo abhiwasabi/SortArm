@@ -130,13 +130,15 @@ The site goes online through **Tailscale Funnel** while the arm stays on the lap
   - the **local port** (4173): unchanged, no password, never exposed;
   - the **public port** (`--public-port`, e.g. 4174): the only one given to Funnel, and it always enforces the operator session.
   - Funnel traffic arrives from the laptop itself, so address or Host can't separate remote viewers from the local operator.
-- **On the public port, without logging in:** the dashboard, `GET /api/state`, `GET /api/frame.jpg`, `GET /api/gemini`, and **`POST /api/stop`**. Anyone watching can stop the arm.
+- **On the public port, without logging in:** the dashboard, `GET /api/state`, `GET /api/frame.jpg`, `GET /api/gemini`, `GET /api/sort-history`, `GET /api/auth-config`, `GET /api/operator`, and **`POST /api/stop`**. Anyone watching can stop the arm.
 - **Operator only** (`POST /api/login` with the password from env `BRIDGE_OPERATOR_PASSWORD`): home, sort, sorting, camera, mock, Gemini changes, and `GET /api/cameras`. Without a session these return 401.
   - The session is an HttpOnly, Secure, SameSite=Strict cookie. Logout from one browser ends every operator session.
   - Failed logins are remembered until a correct password. The wait starts at 60 seconds and doubles, up to 15 minutes. The local port has no lockout.
   - Host and Origin are checked against `--public-host`.
   - Stopping the bridge closes both ports without waiting for a stuck request.
 - **`/api/state.public`** is true on the public port. **`/api/state.operator`** is true on the local port, or with a valid session. The dashboard disables every control except STOP for viewers.
+
+One `Handler.access()` check covers every protected POST and GET: a verified Auth0 token with `sorter:operate` is allowed; a token without the permission returns 403 `Operator permission required`; otherwise a public-port password session is allowed; a local port with no Auth0 verifier stays open; anything else returns 401 `Operator login required`.
 
 ## Hardware
 

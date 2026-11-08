@@ -24,6 +24,8 @@ On a public dashboard, the **Operator access** panel offers a password field and
 
 Viewers cannot use Home, Start/Pause sorting, manual sorting, camera selection or Start/Stop camera, Gemini connect/disconnect, or mock scenarios. Camera discovery waits until operator access is known and runs after login. Viewer mode itself does not produce an error. The panel is hidden on the local port and in `?demo=1`; the sample preview continues to make no API or hardware commands.
 
+When Auth0 is configured on the public port, the dashboard never hides the content: signed-out viewers see a sign-in banner above the dashboard, and the banner disappears after sign-in. Once authorized, the dashboard sends the Auth0 token on same-origin `GET /api/state`, `/api/cameras` and `/api/gemini`, but never on `/api/stop` or `/api/frame.jpg`.
+
 An expired session that causes a command or camera-discovery `401` displays **Operator login required**, immediately disables operator controls and refreshes state. Commands are not retried automatically. State and command responses that predate login/logout are ignored so they cannot restore stale permissions. The bridge enforces authorization; hiding controls in the browser is only the interface behavior.
 
 ### Endpoints

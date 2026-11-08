@@ -58,6 +58,28 @@ tailscale funnel status        # should now show nothing
 
 `tailscale funnel reset` clears **all** Serve and Funnel settings on this laptop, not only this one. That's fine unless you've set up other Tailscale Serve or Funnel sites yourself. The script runs it too when you press Ctrl+C. Afterwards, check that `tailscale funnel status` is empty.
 
+## Auth0 on the public link
+
+Auth0 adds a second way to become an operator: sign in with Auth0 **or** use the operator password. Viewers and STOP work exactly as before, with no login.
+
+Install the optional verifier dependency once:
+
+```powershell
+.venv\Scripts\pip install -r bridge/auth0-requirements.txt
+```
+
+Set the three non-secret identifiers in the same PowerShell window as `BRIDGE_OPERATOR_PASSWORD`:
+
+```powershell
+$env:AUTH0_DOMAIN = "your-tenant.us.auth0.com"
+$env:AUTH0_CLIENT_ID = "your-spa-client-id"
+$env:AUTH0_AUDIENCE = "https://sharkbyte.local/api"
+```
+
+The tenant owner must register the Allowed Callback URLs `https://<name>.ts.net/` and `http://localhost:4173/`, the same Logout URLs, and Allowed Web Origins without the trailing slash. The operator user also needs the `sorter:operate` permission.
+
+Known limit: browsers that block third-party cookies may ask for sign-in again after a reload.
+
 ## Safety
 
 - **Keep the physical servo power switch within reach.** STOP on the site depends on the laptop, the network and Funnel all working.

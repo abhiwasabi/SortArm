@@ -8,6 +8,7 @@ import time
 import urllib.error
 
 from .adapters import Camera, GeminiPredictor, prediction_error_message
+from .auth0_operator import Auth0Config, Auth0Verifier
 from .camera_sources import CameraSourceManager, Esp32SnapshotSource, validate_esp32_url
 from .core import Bridge
 from .scene_changes import SceneCadence, scene_signature
@@ -25,7 +26,7 @@ def main():
     parser.add_argument('--camera', type=int, default=0)
     parser.add_argument('--esp32-url', help='Local HTTP JPEG snapshot URL, e.g. http://192.168.1.50/capture')
     args = parser.parse_args()
-    auth = None
+    operator_auth = None
     if args.public_port is not None:
         if not args.public_host:
             parser.error('--public-host is required with --public-port')
@@ -33,8 +34,15 @@ def main():
         if len(password) < 8:
             print('Public access requires BRIDGE_OPERATOR_PASSWORD with at least 8 characters.', file=sys.stderr)
             raise SystemExit(2)
-        auth = OperatorAuth(password)
+        operator_auth = OperatorAuth(password)
         del password
+    try:
+        cfg = Auth0Config.from_env()
+        auth0 = Auth0Verifier(cfg) if cfg else None
+    except (ValueError, RuntimeError) as exc:
+        message = ' '.join(str(exc).split())
+        print('Auth0 startup failed: ' + message, file=sys.stderr)
+        raise SystemExit(2) from None
     try:
         from arm import BINS, ArmConfig, ArmController, PosesError
     except ImportError:
@@ -156,12 +164,12 @@ def main():
     public_thread = None
     binding_port = args.port
     try:
-        server = make_server(bridge, web, args.port, camera_manager=camera)
+        server = make_server(bridge, web, args.port, camera_manager=camera, auth=auth0)
         if args.public_port is not None:
             binding_port = args.public_port
-            public_server = make_server(bridge, web, args.public_port, camera_manager=camera,
+            public_server = make_server(bridge, web, args.public_port, camera_manager=camera, auth=auth0,
                                         public=True, public_host=args.public_host,
-                                        operator_auth=auth)
+                                        operator_auth=operator_auth)
             binding_port = args.port
             public_thread = threading.Thread(target=public_server.serve_forever, daemon=True)
             public_thread.start()
