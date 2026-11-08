@@ -4,3 +4,7 @@
 .auth-gate p { color: #57675b; line-height: 1.5; }
 .auth-gate button, .auth-bar button { min-height: 38px; padding: 8px 14px; border: 1px solid #9ab2a0; border-radius: 9px; background: #fff; cursor: pointer; }
 .auth-bar { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.auth-bar #authIdentity { color: #57675b; font-weight: 650; }
+.topbar-actions { display: grid; justify-items: end; gap: 8px; }
+.topbar-controls { display: flex; align-items: center; gap: 20px; }
+.auth-bar button { min-height: 30px; padding: 4px 10px; font-size: 12px; }
