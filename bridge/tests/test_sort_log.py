@@ -202,5 +202,130 @@ class SortLogTests(unittest.TestCase):
         self.assertLess(time.monotonic() - start, 1.0)
 
 
+class ReadCursor:
+    """Answers the three history queries with canned rows; can fail the aggregate query."""
+    def __init__(self, conn):
+        self.conn, self.rows = conn, []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self.conn.queries.append(sql)
+        if 'sort_events_per_minute' in sql and self.conn.no_aggregate:
+            raise RuntimeError('relation "sort_events_per_minute" does not exist')
+        if 'GROUP BY outcome' in sql:
+            self.rows = self.conn.totals
+        elif 'LIMIT' in sql:
+            self.rows = self.conn.recent
+        else:
+            self.rows = self.conn.window
+
+    def fetchall(self):
+        return self.rows
+
+
+class ReadConn:
+    def __init__(self, no_aggregate=False):
+        from datetime import datetime, timezone
+        t = datetime(2026, 11, 8, 1, 30, tzinfo=timezone.utc)
+        self.queries, self.closed, self.no_aggregate = [], False, no_aggregate
+        self.window = [(t, 'PAPER', 'DONE', True, 2, 30.0, 2), (t, 'PAPER', 'STOPPED', True, 1, None, 0),
+                       (t, 'METAL', 'FAULT', True, 1, None, 0)]
+        self.totals = [('DONE', 5, True), ('STOPPED', 1, True), ('FAULT', 1, True)]
+        self.recent = [(t, 'Paper sheet', 'PAPER', 'DONE', 0.9, 15.0, True)]
+
+    def cursor(self):
+        return ReadCursor(self)
+
+    def close(self):
+        self.closed = True
+
+
+class HistoryTests(unittest.TestCase):
+    def test_history_summarizes_aggregate_rows_and_caches(self):
+        conns = []
+        def connect():
+            conns.append(ReadConn())
+            return conns[-1]
+        now = [0.0]
+        log = SortLog(connect=FakeConn, read_connect=connect, clock=lambda: now[0], cache_s=3)
+        data = log.history(60)
+        self.assertEqual(data['source'], 'continuous_aggregate')
+        self.assertTrue(data['ok'] and data['simulated'])
+        self.assertEqual(data['totals'], {'DONE': 5, 'STOPPED': 1, 'FAULT': 1})
+        paper = next(b for b in data['per_bin'] if b['bin'] == 'PAPER')
+        self.assertEqual((paper['done'], paper['stopped'], paper['avg_cycle_s']), (2, 1, 15.0))
+        self.assertEqual(data['per_minute'][0]['done'], 2)
+        self.assertEqual(data['per_minute'][0]['fault'], 1)
+        self.assertEqual(data['recent'][0]['label'], 'Paper sheet')
+        self.assertTrue(data['recent'][0]['time'].startswith('2026-11-08T01:30'))
+        self.assertTrue(conns[0].closed)
+        log.history(60)
+        self.assertEqual(len(conns), 1)  # served from cache
+        now[0] = 5.0
+        log.history(60)
+        self.assertEqual(len(conns), 2)
+
+    def test_history_falls_back_to_raw_table(self):
+        log = SortLog(connect=FakeConn, read_connect=lambda: ReadConn(no_aggregate=True))
+        self.assertEqual(log.history(60)['source'], 'table')
+
+    def test_history_clamps_window(self):
+        conn = ReadConn()
+        log = SortLog(connect=FakeConn, read_connect=lambda: conn)
+        self.assertEqual(log.history(99999)['window_minutes'], 1440)
+
+
+class HistoryEndpointTests(unittest.TestCase):
+    def serve(self, sort_log):
+        from bridge.server import make_server
+        from pathlib import Path
+        bridge = Bridge(FakeArm(), simulation=True, sort_log=sort_log)
+        server = make_server(bridge, Path(__file__).resolve().parents[2] / 'web', 0)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        return f'http://127.0.0.1:{server.server_port}'
+
+    def get(self, base, path):
+        import json
+        from urllib.request import urlopen
+        with urlopen(base + path, timeout=5) as response:
+            return response.status, json.loads(response.read())
+
+    def test_disabled_without_sort_log(self):
+        self.assertEqual(self.get(self.serve(None), '/api/sort-history'), (200, {'enabled': False}))
+
+    def test_returns_history_and_passes_window(self):
+        class Log:
+            def emit(self, event):
+                return True
+            def history(self, minutes):
+                self.minutes = minutes
+                return {'enabled': True, 'ok': True, 'window_minutes': minutes}
+        log = Log()
+        status, data = self.get(self.serve(log), '/api/sort-history?minutes=30')
+        self.assertEqual((status, data['ok'], log.minutes), (200, True, 30))
+
+    def test_database_error_is_generic(self):
+        class Log:
+            def emit(self, event):
+                return True
+            def history(self, minutes):
+                raise OSError('could not connect to tsdbadmin@secret-host.example:5432')
+        status, data = self.get(self.serve(Log()), '/api/sort-history')
+        self.assertEqual((status, data['ok']), (200, False))
+        self.assertNotIn('secret-host', json_dumps(data))
+
+
+def json_dumps(data):
+    import json
+    return json.dumps(data)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -80,12 +80,15 @@ export TIGER_DATABASE_URL='postgres://...'                   # your Tiger Cloud 
 - One row per accepted sort: `DONE` after the controller completes it, `STOPPED` after an operator STOP, or `FAULT` for any other arm error during the sort, with `label`, `bin`, nullable `confidence`, `cycle_s`, `simulated`, and the error `detail`. HOME and idle errors write nothing. Counts and history still update only on DONE.
 - The bridge only enqueues (500 events, dropped when full). A background thread writes in batches and retries with backoff, so a slow or unreachable database never delays HOME, SORT, or STOP.
 - Rows from `--mock`/`--mock-arm` have `simulated = true`; they are not physical drops.
+- The writer also creates `sort_events_per_minute`, a real-time TimescaleDB continuous aggregate (per-minute counts and cycle times by bin and outcome) with a refresh policy.
+- `GET /api/sort-history?minutes=60` (read-only, 5–1440 minutes) returns outcome totals, a per-minute series and per-bin counts for the window, and the latest rows. It reads the continuous aggregate, falling back to the table, on its own short-lived connection with a 5 s statement timeout and a 3 s cache. Without the URL it returns `{"enabled": false}`; database errors return a generic `ok: false`. The dashboard's **Sort history · Tiger Data** card under Bin totals shows it.
 
 ## API
 
 | Route | Behavior |
 | --- | --- |
 | `GET /api/state` | Prediction, controller, counts, camera source/status, simulation, and sorting state |
+| `GET /api/sort-history` | Optional Tiger Data summary (`?minutes=5..1440`); `{"enabled": false}` without `TIGER_DATABASE_URL` |
 | `GET /api/frame.jpg` | Latest fresh frame, or 503; live JPEG / mock SVG |
 | `POST /api/stop` | Pause, invalidate pending results, call `arm.stop()` |
 | `POST /api/home` | Pause, invalidate pending results, request operator HOME; 409 if rejected |
