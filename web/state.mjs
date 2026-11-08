@@ -3,6 +3,13 @@ export const BIN_KEYS = ["PAPER", "PLASTIC", "METAL", "ORGANIC"];
 const BINS = new Set(BIN_KEYS);
 const HISTORY_LIMIT = 20;
 
+function configuredBins(value) {
+  if (!Array.isArray(value)) return [...BIN_KEYS];
+  return [...new Set(value.filter(bin => typeof bin === "string")
+    .map(bin => bin.trim().toUpperCase())
+    .filter(bin => /^[A-Z][A-Z0-9_-]{0,31}$/.test(bin)))];
+}
+
 function nonnegativeCount(value) {
   return Number.isInteger(value) && value >= 0 ? value : null;
 }
@@ -59,6 +66,7 @@ export function normalizeState(raw) {
     ? raw.camera_source : raw.mock_camera === true ? "mock" : "usb";
 
   return {
+    bins: configuredBins(raw.bins),
     bridgeAvailable: typeof raw.sorting_enabled === "boolean",
     sortingEnabled: raw.sorting_enabled === true,
     awaitingClear: raw.awaiting_clear === true,

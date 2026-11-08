@@ -104,20 +104,33 @@ export TIGER_DATABASE_URL='postgres://...'                   # your Tiger Cloud 
 - The writer also creates `sort_events_per_minute`, a real-time TimescaleDB continuous aggregate (per-minute counts and cycle times by bin and outcome) with a refresh policy.
 - `GET /api/sort-history?minutes=60` (read-only, 5–1440 minutes) returns outcome totals, a per-minute series and per-bin counts for the window, and the latest rows. It reads the continuous aggregate, falling back to the table, on its own short-lived connection with a 5 s statement timeout and a 3 s cache. Without the URL it returns `{"enabled": false}`; database errors return a generic `ok: false`. The dashboard's **Sort history · Tiger Data** card under Bin totals shows it.
 
+Real-arm startup needs all of the following:
+
+- Taught `home`, `above_pick`, `pick`, and `above_paper`, `above_plastic`, `above_metal`, `above_organic` poses, plus open/closed gripper settings. Teach them with `python -m arm.teach`.
+- A matching LeRobot calibration file for the configured arm ID; run `lerobot-calibrate` first.
+- `ARM_PORT` set to the verified serial port.
+- Both `GEMINI_API_KEY` and `GEMINI_MODEL` in the environment.
+- An available laptop/USB camera (`--camera`) or a working local ESP32 snapshot source (`--esp32-url`).
+
+Arm setup errors print a next step and exit with status 2. If the dashboard port is occupied, choose another with `--port`; the bridge stops and closes the arm and camera on server startup failure.
+
 ## API
 
 | Route | Behavior |
 | --- | --- |
-| `GET /api/state` | Prediction, controller, counts, camera source/status, simulation, and sorting state |
+| `GET /api/state` | Prediction, controller, counts, camera source/status, simulation, sorting state, and ordered allowed `bins` |
 | `GET /api/sort-history` | Optional Tiger Data summary (`?minutes=5..1440`); `{"enabled": false}` without `TIGER_DATABASE_URL` |
 | `GET /api/frame.jpg` | Latest fresh frame, or 503; live JPEG / mock SVG |
 | `POST /api/stop` | Pause, invalidate pending results, call `arm.stop()` |
 | `POST /api/home` | Pause, invalidate pending results, request operator HOME; 409 if rejected |
+| `POST /api/sort` | JSON `{"bin":"PAPER"}`; manually sort to an allowed bin while automatic sorting is paused; no camera or vision required |
 | `POST /api/sorting` | JSON `{"enabled": true}` or false; start requires READY/connected/fresh camera |
 | `POST /api/mock` | Full simulation only: `{"scenario":"empty"}`; bottle, paper, metal, organic, unknown, camera-offline also supported |
 | `POST /api/camera` | Select `mock`, `usb`, or `esp32` camera source; pauses sorting and clears the old decision |
 
 The server binds only to 127.0.0.1, serves static files only from `web/`, and rejects foreign hosts/origins for commands. Keep it local; it is not an authenticated remote-control service. Pause allows a current move to finish; STOP interrupts it. HOME completion never increments bin counts. Completion callbacks run on the controller notifier thread and update bridge state briefly under a lock; STOP waits outside that lock.
+
+`POST /api/sort` returns 200 with `{"accepted":true,"state":...}` when accepted. Rejected manual SORT and HOME requests return 409 with `{"accepted":false,"error":"<reason>","state":...}`: the arm's reason, or, for SORT, "The previous sort is still finishing; try again in a moment." while an earlier sort has not reported DONE yet (the arm shows READY a moment before its DONE reaches the bridge). A missing, non-string, or unsupported bin returns 400 with `{"error":...}`. Manual sorting while automatic sorting is enabled returns 400 with `{"error":"Pause automatic sorting before a manual sort."}`. Bin names must exactly match the uppercase values in `/api/state.bins` (normally PAPER, PLASTIC, METAL, ORGANIC). A manual sort increments its bin count and adds a `Manual` recent-sort record only after the controller reports matching DONE. Automatic sorting remains paused; the pickup area must clear before another automatic sort.
 
 ## Checks
 

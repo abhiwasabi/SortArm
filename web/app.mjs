@@ -16,6 +16,8 @@ const ui = {
   bridgeStatus: byId("bridgeStatus"),
   homeButton: byId("homeButton"),
   sortingButton: byId("sortingButton"),
+  manualSortCard: byId("manualSortCard"),
+  manualSortButtons: byId("manualSortButtons"),
   mockControls: byId("mockControls"),
   mockScenario: byId("mockScenario"),
   cameraSourceCard: byId("cameraSourceCard"),
@@ -56,6 +58,7 @@ const POLL_MS = 300;
 const FRAME_POLL_MS = 100;
 const RETRY_MS = 3000;
 const REQUEST_TIMEOUT_MS = 3000;
+const STOP_REQUEST_TIMEOUT_MS = 8000;
 const FRAME_REQUEST_TIMEOUT_MS = 6500;
 const FRAME_STALE_MS = 10000;
 const STOP_CONFIRM_TIMEOUT_MS = 5000;
@@ -75,6 +78,8 @@ let stopMinimumSequence = 0;
 let stopConfirmationTimer = null;
 let renderedHistoryKey = null;
 let latestHistoryId = null;
+let manualBinsKey = null;
+let manualButtons = [];
 
 function setHealth(container, label, health, value) {
   container.dataset.health = health;
@@ -149,7 +154,7 @@ function renderArm() {
     badge = "API OFFLINE";
   } else if (!snapshot?.connected) {
     label = "Disconnected";
-    description = "The arm controller is not connected to the laptop.";
+    description = snapshot?.armDetail || "The arm controller is not connected to the laptop.";
     tone = "bad";
     badge = "NO CONTROLLER";
   } else {
@@ -162,7 +167,11 @@ function renderArm() {
     };
     [label, description, tone] = states[snapshot.armState];
     badge = snapshot.armState;
-    if (snapshot.armState === "ERROR" && snapshot.armDetail) description = snapshot.armDetail;
+    if (snapshot.armState === "ERROR") {
+      description = (snapshot.armDetail || description) + " Press Home arm to recover.";
+    } else if (snapshot.armState === "BUSY" && snapshot.armDetail) {
+      description = "Moving: " + snapshot.armDetail;
+    }
   }
 
   ui.armState.textContent = label;
@@ -222,6 +231,33 @@ function renderHistory() {
   if (newest) latestHistoryId = newest.id;
 }
 
+function manualSortAvailable() {
+  return !previewMode && backendOnline && snapshot?.bridgeAvailable === true &&
+    snapshot.connected && snapshot.armState === "READY" && !snapshot.sortingEnabled &&
+    !controlPending && !stopPending && !awaitingStopState;
+}
+
+function renderManualSort(bridgeAvailable) {
+  ui.manualSortCard.hidden = !bridgeAvailable;
+  const bins = snapshot?.bins ?? BIN_KEYS;
+  const key = JSON.stringify(bins);
+  if (key !== manualBinsKey) {
+    manualBinsKey = key;
+    manualButtons = bins.map(bin => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "control-button";
+      button.dataset.bin = bin;
+      button.textContent = BIN_DISPLAY[bin]?.label ?? bin;
+      button.addEventListener("click", () => bridgeCommand("/api/sort", { bin }));
+      return button;
+    });
+    ui.manualSortButtons.replaceChildren(...manualButtons);
+  }
+  const enabled = manualSortAvailable();
+  for (const button of manualButtons) button.disabled = !enabled;
+}
+
 function render() {
   if (!previewMode && cameraOnline && (lastFrameAt === null || Date.now() - lastFrameAt > FRAME_STALE_MS)) {
     cameraOnline = false;
@@ -254,7 +290,7 @@ function render() {
     ? BIN_DISPLAY[prediction.bin].label : "No route selected";
 
   renderArm();
-  const bridgeAvailable = !previewMode && backendOnline && snapshot?.bridgeAvailable;
+  const bridgeAvailable = !previewMode && backendOnline && snapshot?.bridgeAvailable === true;
   ui.bridgeControls.hidden = !bridgeAvailable;
   ui.bridgeStatus.hidden = !bridgeAvailable;
   ui.bridgeStatus.textContent = snapshot?.status ?? "";
@@ -262,9 +298,11 @@ function render() {
   ui.runtimeMode.textContent = previewMode ? "SAMPLE PREVIEW" : "SIMULATED ARM";
   ui.mockControls.hidden = !bridgeAvailable || !snapshot?.mockCamera;
   renderCameraSource(usableCamera);
-  ui.homeButton.disabled = controlPending || !bridgeAvailable || !snapshot?.connected || snapshot?.armState === "BUSY";
-  ui.sortingButton.disabled = controlPending || !bridgeAvailable || (!snapshot?.sortingEnabled && (!snapshot?.connected || snapshot?.armState !== "READY" || !usableCamera || !snapshot?.visionReady));
+  const motionPending = controlPending || stopPending || awaitingStopState;
+  ui.homeButton.disabled = motionPending || !bridgeAvailable || !snapshot?.connected || snapshot?.armState === "BUSY";
+  ui.sortingButton.disabled = motionPending || !bridgeAvailable || (!snapshot?.sortingEnabled && (!snapshot?.connected || snapshot?.armState !== "READY" || !usableCamera || !snapshot?.visionReady));
   ui.sortingButton.textContent = snapshot?.sortingEnabled ? "Pause sorting" : "Start sorting";
+  renderManualSort(bridgeAvailable);
   ui.stopButton.disabled = stopPending || (!previewMode && !backendOnline);
   ui.stopButton.querySelector("span").textContent = stopPending ? "SENDING..." : "STOP ARM";
   for (const bin of BIN_KEYS) {
@@ -332,11 +370,8 @@ async function pollState() {
       if (!snapshot.connected) {
         setNotice("Arm controller disconnected before STOP was confirmed. Use the physical power cutoff if needed.", "error");
         awaitingStopState = false;
-      } else if (["READY", "DONE", "ERROR"].includes(snapshot.armState)) {
-        setNotice(
-          "Controller now reports " + snapshot.armState + ". Verify the arm is stationary before resuming.",
-          snapshot.armState === "ERROR" ? "error" : "info"
-        );
+      } else if (snapshot.armState === "ERROR") {
+        setNotice("Arm stopped. Check it is clear, then press Home arm to recover.", "success");
         awaitingStopState = false;
       } else if (stopRequestedAt !== null && Date.now() - stopRequestedAt > STOP_CONFIRM_TIMEOUT_MS) {
         setNotice("STOP was not confirmed after five seconds. Use the physical power cutoff if motion continues.", "error");
@@ -373,7 +408,7 @@ async function requestStop() {
   stopPending = true;
   render();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), STOP_REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch("/api/stop", { method: "POST", signal: controller.signal });
     if (!response.ok) throw new Error("Stop request failed: " + response.status);
@@ -386,6 +421,7 @@ async function requestStop() {
       if (!awaitingStopState) return;
       awaitingStopState = false;
       setNotice("STOP was not confirmed after five seconds. Use the physical power cutoff if motion continues.", "error");
+      render();
     }, STOP_CONFIRM_TIMEOUT_MS);
     setNotice("STOP request sent. Waiting for the arm controller to report its state.", "success");
   } catch {
@@ -398,7 +434,8 @@ async function requestStop() {
 }
 
 async function bridgeCommand(path, body = {}) {
-  if (previewMode || controlPending || !backendOnline) return;
+  if (previewMode || controlPending || stopPending || awaitingStopState || !backendOnline) return;
+  if (path === "/api/sort" && (!manualSortAvailable() || !snapshot.bins.includes(body.bin))) return;
   controlPending = true;
   render();
   const controller = new AbortController();
@@ -406,9 +443,13 @@ async function bridgeCommand(path, body = {}) {
   try {
     const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || "The arm did not accept the command.");
     if (result.state) snapshot = normalizeState(result.state);
-    setNotice(path === "/api/home" ? "Homing requested. Sorting remains paused." : "Control updated.");
+    if (!response.ok || result.accepted === false) {
+      throw new Error(typeof result.error === "string" && result.error.trim()
+        ? result.error : "The arm did not accept the command.");
+    }
+    setNotice(path === "/api/home" ? "Homing requested. Sorting remains paused." :
+      path === "/api/sort" ? "Manual sort requested for " + (BIN_DISPLAY[body.bin]?.label ?? body.bin) + "." : "Control updated.");
   } catch (error) {
     setNotice(error.name === "AbortError" ? "Request timed out. Check controller state before retrying." : error.message, "error");
   } finally {

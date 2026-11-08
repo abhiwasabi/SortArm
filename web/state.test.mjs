@@ -12,6 +12,15 @@ const sample = {
   prediction_at: "2026-11-07T05:30:00Z"
 };
 
+test('manual bins default for older bridges and preserve a configured subset and order', () => {
+  assert.deepEqual(normalizeState(sample).bins, ['PAPER', 'PLASTIC', 'METAL', 'ORGANIC']);
+  assert.deepEqual(normalizeState({ ...sample, bins: ['METAL', 'PAPER'] }).bins, ['METAL', 'PAPER']);
+  assert.deepEqual(normalizeState({ ...sample, bins: [' paper ', 'PAPER', null, '', '<script>', 'GLASS'] }).bins,
+    ['PAPER', 'GLASS']);
+  assert.deepEqual(normalizeState({ ...sample, bins: [] }).bins, []);
+  assert.deepEqual(normalizeState({ ...sample, bins: null }).bins, ['PAPER', 'PLASTIC', 'METAL', 'ORGANIC']);
+});
+
 test("normalizes the agreed API fields without changing confirmed counts", () => {
   const state = normalizeState(sample);
   assert.equal(state.label, "Plastic bottle");
