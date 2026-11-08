@@ -67,6 +67,20 @@ export ARM_PORT='/your/verified/usb-port'
 
 Also configure Gemini as above. Paul must first verify the ST3215-HS motor model and Hiwonder BusLinker V3 transport, calibrate, teach real poses, and test clearance. The reported hardware is approximately 20 kg·cm ST3215-HS on 12 V; the current LeRobot adapter is not yet proven with it. This bridge does not raise real motion speeds or substitute mock poses on physical hardware. STOP uses the local controller, not Gemini. Closing the controller can release torque; support the arm at shutdown and keep the physical power cutoff accessible.
 
+## Optional Tiger Data sort log (#47)
+
+Off unless `TIGER_DATABASE_URL` is set. When set, the bridge records each sort's outcome in a `sort_events` table (a TimescaleDB hypertable on Tiger Cloud):
+
+```sh
+.venv/bin/python -m pip install -r bridge/requirements.txt   # includes psycopg
+export TIGER_DATABASE_URL='postgres://...'                   # your Tiger Cloud service URL; never commit it
+.venv/bin/python -m bridge --mock
+```
+
+- One row per accepted sort: `DONE` after the controller completes it, `STOPPED` after an operator STOP, or `FAULT` for any other arm error during the sort, with `label`, `bin`, nullable `confidence`, `cycle_s`, `simulated`, and the error `detail`. HOME and idle errors write nothing. Counts and history still update only on DONE.
+- The bridge only enqueues (500 events, dropped when full). A background thread writes in batches and retries with backoff, so a slow or unreachable database never delays HOME, SORT, or STOP.
+- Rows from `--mock`/`--mock-arm` have `simulated = true`; they are not physical drops.
+
 ## API
 
 | Route | Behavior |

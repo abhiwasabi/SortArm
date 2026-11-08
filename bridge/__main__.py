@@ -11,6 +11,7 @@ from .camera_sources import CameraSourceManager, Esp32SnapshotSource, validate_e
 from .core import Bridge
 from .scene_changes import SceneCadence, scene_signature
 from .server import make_server
+from .sort_log import SortLog
 
 
 def main():
@@ -48,11 +49,13 @@ def main():
             initial_source.close()
         raise
     initial_name = 'esp32' if esp32_url and not mock_arm else 'mock' if args.mock else 'usb'
+    # Optional Tiger Data log (#47): None unless TIGER_DATABASE_URL is set.
+    sort_log = SortLog.from_env()
     bridge = Bridge(arm, simulation=mock_arm, mock_camera=args.mock, mock_available=args.mock,
                     camera_source=initial_name, camera_url=esp32_url if not mock_arm else None,
                     camera_index=args.camera,
                     vision_ready=args.mock or predictor is not None, allowed_bins=BINS,
-                    prediction_max_age=30 if mock_arm else 8)
+                    prediction_max_age=30 if mock_arm else 8, sort_log=sort_log)
     camera = CameraSourceManager(bridge, web, allow_mock=args.mock, predictor=predictor, index=args.camera,
                                  initial_source=initial_source, initial_name=initial_name,
                                  initial_url=esp32_url if not mock_arm else None)
@@ -121,6 +124,8 @@ def main():
     print('SIMULATED ARM' if mock_arm else 'PHYSICAL ARM: verify calibration, taught poses, and power cutoff.', flush=True)
     if predictor is None:
         print('Gemini is not configured; live cameras can preview, but sorting is disabled.', flush=True)
+    if sort_log is not None:
+        print('Sort log: writing sort outcomes to Tiger Data (TIGER_DATABASE_URL).', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -133,6 +138,8 @@ def main():
         server.server_close()
         arm.close()
         camera.close()
+        if sort_log is not None:
+            sort_log.close()
 
 
 if __name__ == '__main__':
