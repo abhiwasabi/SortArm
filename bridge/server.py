@@ -1,5 +1,6 @@
 """Same-origin local HTTP API plus the existing static dashboard."""
 from .gemini_settings import connect_gemini, disconnect_gemini, gemini_status
+from .auth0_operator import Auth0Config, Auth0Verifier, AuthError
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -8,10 +9,11 @@ from urllib.parse import parse_qs, urlsplit
 
 
 class Handler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, bridge, source=None, camera_manager=None, directory, **kwargs):
+    def __init__(self, *args, bridge, source=None, camera_manager=None, auth=None, directory, **kwargs):
         self.bridge = bridge
         self.source = source
         self.camera_manager = camera_manager
+        self.auth = auth
         super().__init__(*args, directory=directory, **kwargs)
 
     def log_request(self, code='-', size='-'):
@@ -44,6 +46,14 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.valid_host():
             return self.send_json(403, {'error': 'Use the local dashboard URL'})
         path = urlsplit(self.path).path
+        if path == '/api/auth-config':
+            return self.send_json(200, self.auth.config.public() if self.auth else {'enabled': False})
+        if path == '/api/operator' and self.auth is not None:
+            try:
+                claims = self.auth.verify(self.headers.get('Authorization'))
+            except AuthError as exc:
+                return self.send_json(exc.status, {'authorized': False})
+            return self.send_json(200, {'authorized': True, 'sub': claims['sub']})
         if path == '/api/cameras':
             try:
                 from .camera_devices import enumerate_camera_devices
@@ -96,6 +106,13 @@ class Handler(SimpleHTTPRequestHandler):
         if (not self.valid_host() or (origin and origin != 'http://' + self.headers.get('Host', ''))
                 or self.headers.get('Sec-Fetch-Site') == 'cross-site'):
             return self.send_json(403, {'error': 'Use controls on the local dashboard'})
+        path = urlsplit(self.path).path
+        if self.auth is not None and path != '/api/stop':
+            try:
+                self.auth.verify(self.headers.get('Authorization'))
+            except AuthError as exc:
+                return self.send_json(exc.status, {'error': 'Operator login required' if exc.status == 401
+                                                   else 'Operator permission required'})
         try:
             length = int(self.headers.get('Content-Length', '0'))
             if length < 0 or length > 4096 or self.headers.get('Transfer-Encoding'):
@@ -140,7 +157,10 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(503, {'error': 'Controller operation failed'})
 
 
-def make_server(bridge, web, port=4173, source=None, camera_manager=None):
-    handler = partial(Handler, bridge=bridge, source=source, camera_manager=camera_manager,
+def make_server(bridge, web, port=4173, source=None, camera_manager=None, auth=None):
+    if auth is None:
+        config = Auth0Config.from_env()
+        auth = Auth0Verifier(config) if config else None
+    handler = partial(Handler, bridge=bridge, source=source, camera_manager=camera_manager, auth=auth,
                       directory=str(Path(web).resolve()))
     return ThreadingHTTPServer(('127.0.0.1', port), handler)
