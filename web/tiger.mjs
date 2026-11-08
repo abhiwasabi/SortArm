@@ -10,7 +10,16 @@ export function cardStatus(data) {
     message: 'Tiger Data is not connected. Set TIGER_DATABASE_URL before starting the bridge to keep a permanent sort log.'};
   if (data.ok === false) return {tone: 'offline', badge: 'OFFLINE', message: data.error || 'Tiger Data is unreachable. Sorting is unaffected.'};
   if (data.simulated) return {tone: 'sample', badge: 'SIMULATED', message: ''};
-  return {tone: 'live', badge: 'LIVE', message: ''};
+  return {tone: 'live', badge: 'PHYSICAL', message: ''};
+}
+
+// Says which mode is shown and that the other mode's rows are kept out of these numbers.
+export function modeNote(data) {
+  const other = data.other_mode_rows || 0;
+  const hidden = other ? ` ${other} ${data.simulated ? 'physical' : 'simulated'} ${other === 1 ? 'row is' : 'rows are'} stored separately and not counted here.` : '';
+  return data.simulated
+    ? `Simulated sorts from a mock arm only; these are not physical drops.${hidden}`
+    : `Physical arm sorts only.${hidden}`;
 }
 
 // One slot per minute, oldest first, ending at the current minute; empty minutes are zero.
@@ -139,7 +148,9 @@ export function render(nodes, data, now = Date.now()) {
   nodes.stopped.textContent = String(data.totals?.STOPPED ?? 0);
   nodes.faults.textContent = String(data.totals?.FAULT ?? 0);
   nodes.cycle.textContent = formatSeconds(averageCycle(bins));
-  nodes.simulated.hidden = !data.simulated;
+  nodes.simulated.textContent = modeNote(data);
+  nodes.simulated.dataset.tone = data.simulated ? 'sample' : '';
+  nodes.simulated.hidden = false;
   renderMinuteChart(nodes.minutes, minuteSeries(data.per_minute, data.window_minutes || WINDOW_MINUTES, now), nodes.tooltip);
   renderBins(nodes.bins, bins);
   renderRecent(nodes.recent, data.recent || []);
@@ -166,6 +177,7 @@ export function start() {
     if (busy || document.hidden) return;
     busy = true;
     try {
+      // No mode parameter: the bridge shows the mode it runs in (simulated or physical).
       const response = await fetch(`/api/sort-history?minutes=${WINDOW_MINUTES}`, {cache: 'no-store'});
       render(nodes, response.ok ? await response.json() : null);
     } catch {

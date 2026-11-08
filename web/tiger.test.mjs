@@ -1,13 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {averageCycle, binRows, cardStatus, formatSeconds, minuteSeries} from './tiger.mjs';
+import {averageCycle, binRows, cardStatus, formatSeconds, minuteSeries, modeNote} from './tiger.mjs';
 
-test('card status covers off, offline, simulated, and live', () => {
+test('card status covers off, offline, simulated, and physical', () => {
   assert.equal(cardStatus({enabled: false}).badge, 'OFF');
   assert.equal(cardStatus(null).tone, 'offline');
   assert.equal(cardStatus({enabled: true, ok: false, error: 'down'}).message, 'down');
   assert.equal(cardStatus({enabled: true, ok: true, simulated: true}).badge, 'SIMULATED');
-  assert.equal(cardStatus({enabled: true, ok: true, simulated: false}).badge, 'LIVE');
+  assert.equal(cardStatus({enabled: true, ok: true, simulated: false}).badge, 'PHYSICAL');
+});
+
+test('mode note names the mode shown and the rows kept out', () => {
+  assert.match(modeNote({simulated: true, other_mode_rows: 0}), /not physical drops\.$/);
+  assert.match(modeNote({simulated: true, other_mode_rows: 2}), /2 physical rows are stored separately/);
+  assert.match(modeNote({simulated: false, other_mode_rows: 1}), /^Physical arm sorts only\. 1 simulated row is/);
 });
 
 test('minute series fills empty minutes and ends at the current minute', () => {

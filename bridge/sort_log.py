@@ -38,24 +38,32 @@ CONTINUOUS_AGGREGATE = (
 )
 OUTCOMES = ('DONE', 'STOPPED', 'FAULT')
 # Window queries: the continuous aggregate first, the raw table if the aggregate is unavailable.
+# Every read is filtered to one mode, so simulated sorts never mix with physical drops.
 WINDOW_FROM_AGGREGATE = """
-    SELECT bucket, bin, outcome, bool_or(simulated), sum(sorts)::int,
-           sum(cycle_total), sum(cycle_count)::int
-    FROM sort_events_per_minute WHERE bucket >= now() - make_interval(mins => %s)
+    SELECT bucket, bin, outcome, sum(sorts)::int, sum(cycle_total), sum(cycle_count)::int
+    FROM sort_events_per_minute
+    WHERE bucket >= now() - make_interval(mins => %s) AND simulated = %s
     GROUP BY bucket, bin, outcome ORDER BY bucket"""
 WINDOW_FROM_TABLE = """
-    SELECT date_trunc('minute', time) AS bucket, bin, outcome, bool_or(simulated), count(*)::int,
-           sum(cycle_s), count(cycle_s)::int
-    FROM sort_events WHERE time >= now() - make_interval(mins => %s)
+    SELECT date_trunc('minute', time) AS bucket, bin, outcome, count(*)::int, sum(cycle_s), count(cycle_s)::int
+    FROM sort_events WHERE time >= now() - make_interval(mins => %s) AND simulated = %s
     GROUP BY 1, bin, outcome ORDER BY 1"""
-TOTALS = "SELECT outcome, count(*)::int, bool_or(simulated) FROM sort_events GROUP BY outcome"
-RECENT = """SELECT time, label, bin, outcome, confidence, cycle_s, simulated
-            FROM sort_events ORDER BY time DESC LIMIT %s"""
+TOTALS = "SELECT outcome, count(*)::int FROM sort_events WHERE simulated = %s GROUP BY outcome"
+OTHER_MODE = "SELECT count(*)::int FROM sort_events WHERE simulated <> %s"
+RECENT = """SELECT time, label, bin, outcome, confidence, cycle_s
+            FROM sort_events WHERE simulated = %s ORDER BY time DESC LIMIT %s"""
 INSERT = """INSERT INTO sort_events (time, sort_id, label, bin, confidence, outcome, cycle_s, simulated, detail)
             VALUES (%(time)s, %(sort_id)s, %(label)s, %(bin)s, %(confidence)s, %(outcome)s,
                     %(cycle_s)s, %(simulated)s, %(detail)s)
             ON CONFLICT (sort_id, time) DO NOTHING"""
 FIELDS = ('time', 'sort_id', 'label', 'bin', 'confidence', 'outcome', 'cycle_s', 'simulated', 'detail')
+
+
+def describe_error(exc):
+    """Safe diagnostic: the exception type and Postgres SQLSTATE only. Never the message, which can
+    echo the connection string, host, or user name."""
+    code = getattr(exc, 'sqlstate', None)
+    return f'{exc.__class__.__name__}, SQLSTATE {code}' if code else exc.__class__.__name__
 
 
 def _iso(value):
@@ -66,11 +74,10 @@ def _num(value):
     return None if value is None else float(value)
 
 
-def summarize(window, totals, recent, *, minutes, source):
-    """Shape database rows into the /api/sort-history JSON (plain values only)."""
-    per_minute, per_bin, simulated = {}, {}, False
-    for bucket, bin_name, outcome, sim, sorts, cycle_total, cycle_count in window:
-        simulated = simulated or bool(sim)
+def summarize(window, totals, recent, *, minutes, source, simulated, other_mode_rows=0):
+    """Shape one mode's database rows into the /api/sort-history JSON (plain values only)."""
+    per_minute, per_bin = {}, {}
+    for bucket, bin_name, outcome, sorts, cycle_total, cycle_count in window:
         key = outcome.lower() if outcome in OUTCOMES else 'fault'
         minute = per_minute.setdefault(_iso(bucket), dict(bucket=_iso(bucket), done=0, stopped=0, fault=0))
         minute[key] += sorts
@@ -87,16 +94,17 @@ def summarize(window, totals, recent, *, minutes, source):
         row['avg_cycle_s'] = round(total / count, 2) if count else None
         bins.append(row)
     all_time = dict.fromkeys(OUTCOMES, 0)
-    for outcome, count, sim in totals:
+    for outcome, count in totals:
         all_time[outcome if outcome in OUTCOMES else 'FAULT'] += count
-        simulated = simulated or bool(sim)
     return dict(
-        enabled=True, ok=True, source=source, window_minutes=minutes, simulated=simulated,
+        enabled=True, ok=True, source=source, window_minutes=minutes,
+        mode='simulated' if simulated else 'physical', simulated=bool(simulated),
+        other_mode_rows=other_mode_rows,
         per_minute=sorted(per_minute.values(), key=lambda m: m['bucket']),
         per_bin=sorted(bins, key=lambda b: b['bin']), totals=all_time,
         recent=[dict(time=_iso(t), label=label, bin=bin_name, outcome=outcome,
-                     confidence=_num(conf), cycle_s=_num(cycle), simulated=bool(sim))
-                for t, label, bin_name, outcome, conf, cycle, sim in recent])
+                     confidence=_num(conf), cycle_s=_num(cycle), simulated=bool(simulated))
+                for t, label, bin_name, outcome, conf, cycle in recent])
 
 
 class SortLog:
@@ -180,9 +188,10 @@ class SortLog:
                 delay = 1.0
             except Exception as exc:  # database down, bad URL, network: keep the bridge running
                 self._disconnect()
-                if str(exc) != str(self.last_error):
-                    self._log(f'Sort log: database write failed ({exc.__class__.__name__}: {exc}); retrying.')
-                self.last_error = exc
+                reason = describe_error(exc)
+                if reason != self.last_error:
+                    self._log(f'Sort log: database write failed ({reason}); retrying.')
+                self.last_error = reason
                 if self._stop.wait(delay):
                     return  # shutting down during an outage: give up on the unsent batch
                 delay = min(delay * 2, self._retry_max_s)
@@ -210,16 +219,18 @@ class SortLog:
                     for statement in CONTINUOUS_AGGREGATE:
                         cur.execute(statement)
                 except Exception as exc:
-                    self._log(f'Sort log: TimescaleDB features unavailable ({exc}); using a plain table.')
+                    self._log(f'Sort log: TimescaleDB features unavailable ({describe_error(exc)}); '
+                              'using a plain table.')
             self._conn = conn
         with self._conn.cursor() as cur:
             cur.executemany(INSERT, batch)
 
-    def history(self, minutes=60, recent=10):
-        """Dashboard summary read back from Tiger Data. Runs on the caller's (HTTP) thread, never the
-        bridge lock; results are cached briefly so several open dashboards share one query."""
+    def history(self, minutes=60, recent=10, *, simulated):
+        """Dashboard summary for one mode (simulated or physical) read back from Tiger Data. Runs on the
+        caller's (HTTP) thread, never the bridge lock; cached briefly so open dashboards share a query."""
         minutes = max(5, min(int(minutes), 1440))
-        key = (minutes, recent)
+        simulated = bool(simulated)
+        key = (minutes, recent, simulated)
         with self._read_lock:
             cached = self._cache.get(key)
             if cached and self._clock() - cached[0] < self._cache_s:
@@ -228,22 +239,25 @@ class SortLog:
             try:
                 with conn.cursor() as cur:
                     try:
-                        cur.execute(WINDOW_FROM_AGGREGATE, (minutes,))
+                        cur.execute(WINDOW_FROM_AGGREGATE, (minutes, simulated))
                         source = 'continuous_aggregate'
                     except Exception:
-                        cur.execute(WINDOW_FROM_TABLE, (minutes,))
+                        cur.execute(WINDOW_FROM_TABLE, (minutes, simulated))
                         source = 'table'
                     window = cur.fetchall()
-                    cur.execute(TOTALS)
+                    cur.execute(TOTALS, (simulated,))
                     totals = cur.fetchall()
-                    cur.execute(RECENT, (recent,))
+                    cur.execute(OTHER_MODE, (simulated,))
+                    other = cur.fetchall()
+                    cur.execute(RECENT, (simulated, recent))
                     rows = cur.fetchall()
             finally:
                 try:
                     conn.close()
                 except Exception:
                     pass
-            result = summarize(window, totals, rows, minutes=minutes, source=source)
+            result = summarize(window, totals, rows, minutes=minutes, source=source, simulated=simulated,
+                               other_mode_rows=other[0][0] if other else 0)
             result.update(queued=self._queue.qsize(), dropped=self.dropped, written=self.written)
             self._cache[key] = (self._clock(), result)
             return result

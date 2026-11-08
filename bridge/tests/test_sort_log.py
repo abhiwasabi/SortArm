@@ -214,11 +214,13 @@ class ReadCursor:
         return False
 
     def execute(self, sql, params=None):
-        self.conn.queries.append(sql)
+        self.conn.queries.append((sql, params))
         if 'sort_events_per_minute' in sql and self.conn.no_aggregate:
             raise RuntimeError('relation "sort_events_per_minute" does not exist')
         if 'GROUP BY outcome' in sql:
             self.rows = self.conn.totals
+        elif 'simulated <>' in sql:
+            self.rows = [(self.conn.other,)]
         elif 'LIMIT' in sql:
             self.rows = self.conn.recent
         else:
@@ -233,10 +235,11 @@ class ReadConn:
         from datetime import datetime, timezone
         t = datetime(2026, 11, 8, 1, 30, tzinfo=timezone.utc)
         self.queries, self.closed, self.no_aggregate = [], False, no_aggregate
-        self.window = [(t, 'PAPER', 'DONE', True, 2, 30.0, 2), (t, 'PAPER', 'STOPPED', True, 1, None, 0),
-                       (t, 'METAL', 'FAULT', True, 1, None, 0)]
-        self.totals = [('DONE', 5, True), ('STOPPED', 1, True), ('FAULT', 1, True)]
-        self.recent = [(t, 'Paper sheet', 'PAPER', 'DONE', 0.9, 15.0, True)]
+        self.window = [(t, 'PAPER', 'DONE', 2, 30.0, 2), (t, 'PAPER', 'STOPPED', 1, None, 0),
+                       (t, 'METAL', 'FAULT', 1, None, 0)]
+        self.totals = [('DONE', 5), ('STOPPED', 1), ('FAULT', 1)]
+        self.recent = [(t, 'Paper sheet', 'PAPER', 'DONE', 0.9, 15.0)]
+        self.other = 3
 
     def cursor(self):
         return ReadCursor(self)
@@ -253,9 +256,14 @@ class HistoryTests(unittest.TestCase):
             return conns[-1]
         now = [0.0]
         log = SortLog(connect=FakeConn, read_connect=connect, clock=lambda: now[0], cache_s=3)
-        data = log.history(60)
+        data = log.history(60, simulated=True)
         self.assertEqual(data['source'], 'continuous_aggregate')
         self.assertTrue(data['ok'] and data['simulated'])
+        self.assertEqual((data['mode'], data['other_mode_rows']), ('simulated', 3))
+        # Every query is filtered to the requested mode.
+        for sql, params in conns[0].queries:
+            self.assertIn('simulated', sql)
+            self.assertIn(True, params)
         self.assertEqual(data['totals'], {'DONE': 5, 'STOPPED': 1, 'FAULT': 1})
         paper = next(b for b in data['per_bin'] if b['bin'] == 'PAPER')
         self.assertEqual((paper['done'], paper['stopped'], paper['avg_cycle_s']), (2, 1, 15.0))
@@ -264,27 +272,80 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(data['recent'][0]['label'], 'Paper sheet')
         self.assertTrue(data['recent'][0]['time'].startswith('2026-11-08T01:30'))
         self.assertTrue(conns[0].closed)
-        log.history(60)
+        log.history(60, simulated=True)
         self.assertEqual(len(conns), 1)  # served from cache
+        log.history(60, simulated=False)
+        self.assertEqual(len(conns), 2)  # other mode is a separate query, never the cached one
         now[0] = 5.0
-        log.history(60)
-        self.assertEqual(len(conns), 2)
+        log.history(60, simulated=True)
+        self.assertEqual(len(conns), 3)
+
+    def test_physical_mode_is_labelled_physical(self):
+        conn = ReadConn()
+        data = SortLog(connect=FakeConn, read_connect=lambda: conn).history(60, simulated=False)
+        self.assertEqual((data['mode'], data['simulated'], data['recent'][0]['simulated']), ('physical', False, False))
+        self.assertTrue(all(False in params for sql, params in conn.queries))
 
     def test_history_falls_back_to_raw_table(self):
         log = SortLog(connect=FakeConn, read_connect=lambda: ReadConn(no_aggregate=True))
-        self.assertEqual(log.history(60)['source'], 'table')
+        self.assertEqual(log.history(60, simulated=True)['source'], 'table')
 
     def test_history_clamps_window(self):
         conn = ReadConn()
         log = SortLog(connect=FakeConn, read_connect=lambda: conn)
-        self.assertEqual(log.history(99999)['window_minutes'], 1440)
+        self.assertEqual(log.history(99999, simulated=True)['window_minutes'], 1440)
+
+
+class DiagnosticsTests(unittest.TestCase):
+    SECRET = 'postgres://tsdbadmin:hunter2@abc.tsdb.cloud.timescale.com:35624/tsdb'
+
+    def test_describe_error_never_includes_the_message(self):
+        from bridge.sort_log import describe_error
+
+        class OperationalError(Exception):
+            sqlstate = '08001'
+        text = describe_error(OperationalError(f'connection failed: {self.SECRET}'))
+        self.assertEqual(text, 'OperationalError, SQLSTATE 08001')
+        self.assertEqual(describe_error(ValueError(self.SECRET)), 'ValueError')
+
+    def test_writer_and_setup_logs_stay_generic(self):
+        messages = []
+        secret = self.SECRET
+
+        class SetupConn(FakeConn):
+            def cursor(self):
+                cur = FakeCursor(self)
+                def execute(sql, *args):
+                    if 'create_hypertable' in sql:
+                        raise RuntimeError(f'extension missing on {secret}')
+                    self.executed.append(sql)
+                cur.execute = execute
+                return cur
+        attempts = []
+
+        def connect():
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise OSError(f'could not connect: {secret}')
+            return SetupConn()
+        log = SortLog(connect=connect, log=messages.append)
+        log._stop.wait = lambda delay: threading.Event().wait(0.01)
+        log.start()
+        log.emit(event())
+        self.assertTrue(wait_until(lambda: log.written == 1))
+        log.close()
+        self.assertTrue(messages)
+        for message in messages:
+            self.assertNotIn('hunter2', message)
+            self.assertNotIn('tsdb.cloud', message)
+        self.assertNotIn('hunter2', str(log.last_error))
 
 
 class HistoryEndpointTests(unittest.TestCase):
-    def serve(self, sort_log):
+    def serve(self, sort_log, simulation=True):
         from bridge.server import make_server
         from pathlib import Path
-        bridge = Bridge(FakeArm(), simulation=True, sort_log=sort_log)
+        bridge = Bridge(FakeArm(), simulation=simulation, sort_log=sort_log)
         server = make_server(bridge, Path(__file__).resolve().parents[2] / 'web', 0)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.server_close)
@@ -300,22 +361,40 @@ class HistoryEndpointTests(unittest.TestCase):
     def test_disabled_without_sort_log(self):
         self.assertEqual(self.get(self.serve(None), '/api/sort-history'), (200, {'enabled': False}))
 
+    class Log:
+        def emit(self, event):
+            return True
+
+        def history(self, minutes, *, simulated):
+            self.minutes, self.simulated = minutes, simulated
+            return {'enabled': True, 'ok': True, 'window_minutes': minutes}
+
     def test_returns_history_and_passes_window(self):
-        class Log:
-            def emit(self, event):
-                return True
-            def history(self, minutes):
-                self.minutes = minutes
-                return {'enabled': True, 'ok': True, 'window_minutes': minutes}
-        log = Log()
+        log = self.Log()
         status, data = self.get(self.serve(log), '/api/sort-history?minutes=30')
         self.assertEqual((status, data['ok'], log.minutes), (200, True, 30))
+
+    def test_mode_defaults_to_the_bridge_mode(self):
+        mock_log, physical_log = self.Log(), self.Log()
+        self.get(self.serve(mock_log, simulation=True), '/api/sort-history')
+        self.get(self.serve(physical_log, simulation=False), '/api/sort-history')
+        self.assertEqual((mock_log.simulated, physical_log.simulated), (True, False))
+
+    def test_explicit_mode_and_bad_mode(self):
+        from urllib.error import HTTPError
+        log = self.Log()
+        base = self.serve(log, simulation=True)
+        self.get(base, '/api/sort-history?mode=physical')
+        self.assertFalse(log.simulated)
+        with self.assertRaises(HTTPError) as caught:
+            self.get(base, '/api/sort-history?mode=both')
+        self.assertEqual(caught.exception.code, 400)
 
     def test_database_error_is_generic(self):
         class Log:
             def emit(self, event):
                 return True
-            def history(self, minutes):
+            def history(self, minutes, *, simulated):
                 raise OSError('could not connect to tsdbadmin@secret-host.example:5432')
         status, data = self.get(self.serve(Log()), '/api/sort-history')
         self.assertEqual((status, data['ok']), (200, False))

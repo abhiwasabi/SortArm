@@ -74,12 +74,18 @@ class Handler(SimpleHTTPRequestHandler):
         sort_log = getattr(self.bridge, 'sort_log', None)
         if sort_log is None:
             return self.send_json(200, {'enabled': False})
+        query = parse_qs(urlsplit(self.path).query)
         try:
-            minutes = int((parse_qs(urlsplit(self.path).query).get('minutes') or ['60'])[0])
+            minutes = int((query.get('minutes') or ['60'])[0])
         except ValueError:
             return self.send_json(400, {'error': 'minutes must be a whole number'})
+        # One mode at a time; by default the mode this bridge runs in, so a physical demo never
+        # shows simulated cycles and a mock run never claims physical drops.
+        mode = (query.get('mode') or ['simulated' if self.bridge.simulation else 'physical'])[0]
+        if mode not in ('simulated', 'physical'):
+            return self.send_json(400, {'error': 'mode must be simulated or physical'})
         try:
-            return self.send_json(200, sort_log.history(minutes))
+            return self.send_json(200, sort_log.history(minutes, simulated=mode == 'simulated'))
         except Exception:
             # Never echo database errors: they can include the host or user name.
             return self.send_json(200, {'enabled': True, 'ok': False,
