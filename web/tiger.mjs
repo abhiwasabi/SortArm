@@ -1,5 +1,5 @@
 // Tiger Data sort history card (#47). Reads GET /api/sort-history; never sends commands.
-export const BINS = ['RECYCLE', 'TRASH'];
+export const BINS = ['PLASTIC', 'METAL'];
 export const WINDOW_MINUTES = 60;
 const POLL_MS = 10000;
 const SVG = 'http://www.w3.org/2000/svg';

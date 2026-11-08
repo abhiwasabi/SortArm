@@ -1,5 +1,5 @@
 const ARM_STATES = new Set(["READY", "BUSY", "DONE", "ERROR"]);
-export const BIN_KEYS = ["RECYCLE", "TRASH"];
+export const BIN_KEYS = ["PLASTIC", "METAL"];
 const BINS = new Set(BIN_KEYS);
 const HISTORY_LIMIT = 20;
 

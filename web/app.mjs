@@ -1,8 +1,8 @@
 import { BIN_KEYS, derivePrediction, formatCount, normalizeState } from "./state.mjs";
 
 const BIN_DISPLAY = {
-  RECYCLE: { label: "Recycle bin", short: "RE" },
-  TRASH: { label: "Trash bin", short: "TR" }
+  PLASTIC: { label: "Plastic bin", short: "PL" },
+  METAL: { label: "Metal bin", short: "ME" }
 };
 
 const byId = (id) => document.getElementById(id);
@@ -432,16 +432,14 @@ function setupPreview() {
   const sample = {
     label: "Plastic bottle",
     confidence: 0.94,
-    bin: "RECYCLE",
+    bin: "PLASTIC",
     arm_state: "READY",
     connected: true,
-    counts: { RECYCLE: 7, TRASH: 3 },
+    counts: { PLASTIC: 7, METAL: 3 },
     prediction_at: new Date().toISOString(),
     recent_sorts: [
-      { id: "sample-4", label: "Plastic bottle", bin: "RECYCLE", completed_at: new Date(Date.now() - 120000).toISOString() },
-      { id: "sample-3", label: "Paper sheet", bin: "RECYCLE", completed_at: new Date(Date.now() - 360000).toISOString() },
-      { id: "sample-2", label: "Aluminum can", bin: "RECYCLE", completed_at: new Date(Date.now() - 600000).toISOString() },
-      { id: "sample-1", label: "Banana peel", bin: "TRASH", completed_at: new Date(Date.now() - 840000).toISOString() }
+      { id: "sample-2", label: "Plastic bottle", bin: "PLASTIC", completed_at: new Date(Date.now() - 120000).toISOString() },
+      { id: "sample-1", label: "Aluminum can", bin: "METAL", completed_at: new Date(Date.now() - 360000).toISOString() }
     ]
   };
   backendOnline = true;

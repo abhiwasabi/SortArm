@@ -88,8 +88,8 @@ def demo_poses() -> Poses:
             "above_pick": pose(0, -30, 40, 50),
             "pick": pose(0, -10, 35, 60),
             # Two bins on opposite sides of the base. Mock only; teach the real poses.
-            "above_recycle": pose(-50, -40, 50, 40),
-            "above_trash": pose(50, -40, 50, 40),
+            "above_plastic": pose(-50, -40, 50, 40),
+            "above_metal": pose(50, -40, 50, 40),
         },
         gripper={"open": 60.0, "closed": 5.0},
     )

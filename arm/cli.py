@@ -4,7 +4,7 @@
     python -m arm.cli --port COM5     # real SO-101 (or set ARM_PORT)
 
 stdin:  HOME | SORT <BIN> | STOP                   (one per line; QUIT to exit)
-        BIN is RECYCLE or TRASH (arm/config.py BINS)
+        BIN is PLASTIC or METAL (arm/config.py BINS)
 stdout: READY | BUSY | DONE | ERROR               (one per state change; nothing else)
 stderr: human-readable notes, every line starting with "#", including why a command was rejected.
 

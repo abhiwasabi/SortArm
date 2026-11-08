@@ -142,8 +142,8 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
 .bin-card { display: flex; align-items: center; gap: 15px; min-height: 112px; padding: 19px; background: white; border-radius: 6px; }
 .bin-symbol { width: 55px; height: 55px; display: grid; place-items: center; border-radius: 6px; flex: 0 0 auto; }
 .bin-symbol svg { width: 32px; height: 32px; }
-.recycle-card .bin-symbol { background: #e5f0f5; color: #467b9a; }
-.trash-card .bin-symbol { background: #f3eee6; color: #7a6248; }
+.plastic-card .bin-symbol { background: #e5f0f5; color: #467b9a; }
+.metal-card .bin-symbol { background: #eceff1; color: #5c6b73; }
 .bin-card > div { display: grid; gap: 1px; }
 .bin-card > div span { color: var(--muted); font-size: 11px; }
 .bin-card strong { font-size: 32px; font-weight: 720; line-height: 1; letter-spacing: -.04em; }
@@ -162,8 +162,8 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
 .history-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 4px; font-size: 11px; font-weight: 780; letter-spacing: -.03em; }
 .history-item { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 690; }
 .history-bin { padding: 7px 9px; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; }
-.history-icon[data-bin="RECYCLE"], .history-bin[data-bin="RECYCLE"] { background: #e5f0f5; color: #2d6380; }
-.history-icon[data-bin="TRASH"], .history-bin[data-bin="TRASH"] { background: #f3eee6; color: #7a6248; }
+.history-icon[data-bin="PLASTIC"], .history-bin[data-bin="PLASTIC"] { background: #e5f0f5; color: #2d6380; }
+.history-icon[data-bin="METAL"], .history-bin[data-bin="METAL"] { background: #eceff1; color: #3e4c54; }
 .history-time { min-width: 92px; color: var(--muted); font-size: 11px; text-align: right; white-space: nowrap; }
 
 .detail-heading { margin: 3px 0 22px; }

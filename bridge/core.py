@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 
-BINS = ('RECYCLE', 'TRASH')
+BINS = ('PLASTIC', 'METAL')
 # Words that show up in almost every Gemini rewording and do not identify the object.
 _GENERIC_ITEM_WORDS = frozenset({
     'item', 'object', 'plastic', 'paper', 'metal', 'organic', 'recycle', 'trash',
@@ -234,7 +234,7 @@ class Bridge:
             if enabled and not self.vision_ready:
                 raise ValueError('Gemini is not configured for this camera source; set GEMINI_API_KEY and GEMINI_MODEL')
             if enabled and set(self.allowed_bins) != set(BINS):
-                raise ValueError('Arm controller must support RECYCLE and TRASH before sorting')
+                raise ValueError('Arm controller must support PLASTIC and METAL before sorting')
             if enabled and (self.arm.state != 'READY' or not self.arm.connected or not self.fresh_frame()):
                 raise ValueError('Start requires a homed, connected arm and a current camera frame')
             self.enabled = enabled

@@ -1,13 +1,43 @@
 {
   "poses": {
-    "home": null,
-    "above_pick": null,
-    "pick": null,
-    "above_recycle": null,
-    "above_trash": null
+    "home": {
+      "shoulder_pan": 6.3,
+      "shoulder_lift": -64.1,
+      "elbow_flex": 47.3,
+      "wrist_flex": 95.5,
+      "wrist_roll": 8.3
+    },
+    "above_pick": {
+      "shoulder_pan": 3.1,
+      "shoulder_lift": 1.5,
+      "elbow_flex": -40.5,
+      "wrist_flex": 57.0,
+      "wrist_roll": 8.2
+    },
+    "pick": {
+      "shoulder_pan": 2.7,
+      "shoulder_lift": 16.1,
+      "elbow_flex": 6.9,
+      "wrist_flex": 56.5,
+      "wrist_roll": 8.2
+    },
+    "above_plastic": {
+      "shoulder_pan": 35.7,
+      "shoulder_lift": 20.4,
+      "elbow_flex": -1.3,
+      "wrist_flex": 56.6,
+      "wrist_roll": 8.2
+    },
+    "above_metal": {
+      "shoulder_pan": -32.1,
+      "shoulder_lift": 19.3,
+      "elbow_flex": -6.8,
+      "wrist_flex": 56.5,
+      "wrist_roll": 8.2
+    }
   },
   "gripper": {
-    "open": null,
-    "closed": null
+    "open": 100.0,
+    "closed": 1.2
   }
 }

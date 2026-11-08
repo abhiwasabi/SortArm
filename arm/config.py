@@ -21,9 +21,8 @@ JOINTS: tuple[str, ...] = (
 BODY_JOINTS: tuple[str, ...] = JOINTS[:-1]
 GRIPPER = "gripper"
 
-# Trial contract (issue #66): SORT <BIN> accepts exactly these, and each needs a taught pose
-# named above_<bin> (above_recycle, above_trash). Not merged; the four-bin contract stays on main.
-BINS: tuple[str, ...] = ("RECYCLE", "TRASH")
+# SORT <BIN> accepts exactly these, and each needs a taught pose named above_<bin>.
+BINS: tuple[str, ...] = ("PLASTIC", "METAL")
 
 
 def _env_float(name: str, default: float) -> float:
