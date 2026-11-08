@@ -456,12 +456,15 @@ class PublicStartupTests(unittest.TestCase):
     def test_auth0_configuration_errors_exit_before_opening_hardware(self):
         complete = {'AUTH0_DOMAIN': 'example.us.auth0.com', 'AUTH0_CLIENT_ID': 'client',
                     'AUTH0_AUDIENCE': 'https://sorter'}
-        for env, failure, expected in (({'AUTH0_DOMAIN': 'example.us.auth0.com'}, None, 'together'),
-                                        (complete, RuntimeError('Install Auth0 dependencies\nbefore enabling'),
+        password = {'BRIDGE_OPERATOR_PASSWORD': 'test-password'}
+        for env, failure, expected in (({'AUTH0_DOMAIN': 'example.us.auth0.com', **password}, None, 'together'),
+                                        ({**complete, **password},
+                                         RuntimeError('Install Auth0 dependencies\nbefore enabling'),
                                          'Install Auth0 dependencies before enabling')):
             with self.subTest(env=env):
                 stderr = io.StringIO()
-                with patch('sys.argv', ['bridge']), patch.dict('os.environ', env, clear=True), \
+                with patch('sys.argv', ['bridge', '--public-port', '4174', '--public-host', 'sorter.ts.net']), \
+                        patch.dict('os.environ', env, clear=True), \
                         patch('bridge.__main__.Auth0Verifier', side_effect=failure) as verifier, \
                         patch('bridge.__main__.Camera') as camera, \
                         patch('bridge.__main__.Esp32SnapshotSource') as esp32, \
@@ -538,7 +541,7 @@ class PublicStartupTests(unittest.TestCase):
             bridge_main()
         calls = servers.call_args_list
         auth0.assert_called_once_with(FakeAuth0.config)
-        self.assertIs(calls[0].kwargs['auth'], verifier)
+        self.assertIs(calls[0].kwargs['auth'], False)
         self.assertIs(calls[1].kwargs['auth'], verifier)
         self.assertIs(calls[0].args[0].sort_log, sort_log.return_value)
         sort_log.return_value.close.assert_called_once()
@@ -575,6 +578,7 @@ class PublicStartupTests(unittest.TestCase):
         with patch('sys.argv', ['bridge', '--mock', '--public-port', '4174',
                                 '--public-host', 'sorter.ts.net']), \
                 patch.dict('os.environ', {'BRIDGE_OPERATOR_PASSWORD': 'test-password'}, clear=True), \
+                patch('bridge.__main__.Auth0Verifier', return_value=FakeAuth0()), \
                 patch('arm.ArmController.from_config', return_value=arm), \
                 patch('bridge.__main__.CameraSourceManager'), \
                 patch('bridge.__main__.threading.Thread'), \
@@ -594,6 +598,7 @@ class PublicStartupTests(unittest.TestCase):
         with patch('sys.argv', ['bridge', '--mock', '--public-port', '4174',
                                 '--public-host', 'sorter.ts.net']), \
                 patch.dict('os.environ', {'BRIDGE_OPERATOR_PASSWORD': 'test-password'}, clear=True), \
+                patch('bridge.__main__.Auth0Verifier', return_value=FakeAuth0()), \
                 patch('arm.ArmController.from_config', return_value=arm), \
                 patch('bridge.__main__.CameraSourceManager') as camera, \
                 patch('bridge.__main__.make_server', side_effect=[local, OSError('Address already in use')]), \

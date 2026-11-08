@@ -60,15 +60,15 @@ tailscale funnel status        # should now show nothing
 
 ## Auth0 on the public link
 
-Auth0 adds a second way to become an operator: sign in with Auth0 **or** use the operator password. Viewers and STOP work exactly as before, with no login.
+Auth0 adds a second way to become an operator on the public site: sign in with Auth0 **or** use the operator password. Viewers and STOP work exactly as before, with no login redirect. The laptop dashboard on port 4173 never requires Auth0.
 
-Install the optional verifier dependency once:
+The public server uses the project tenant when the three variables below are unset: domain `dev-ilye6s18ng7ernps.us.auth0.com`, client `rd4I86eUTelgHzFYI9mCdeRgAq0bAz8a`, audience `https://sharkbyte.local/api`. Install the verifier dependency once:
 
 ```powershell
-.venv\Scripts\pip install -r bridge/auth0-requirements.txt
+.venv\Scripts\pip install -r bridge/requirements.txt
 ```
 
-Set the three non-secret identifiers in the same PowerShell window as `BRIDGE_OPERATOR_PASSWORD`:
+Set the three non-secret identifiers in the same PowerShell window as `BRIDGE_OPERATOR_PASSWORD` only to override that tenant:
 
 ```powershell
 $env:AUTH0_DOMAIN = "your-tenant.us.auth0.com"
@@ -76,7 +76,7 @@ $env:AUTH0_CLIENT_ID = "your-spa-client-id"
 $env:AUTH0_AUDIENCE = "https://sharkbyte.local/api"
 ```
 
-The tenant owner must register the Allowed Callback URLs `https://<name>.ts.net/` and `http://localhost:4173/`, the same Logout URLs, and Allowed Web Origins without the trailing slash. The operator user also needs the `sorter:operate` permission.
+The tenant owner must register Allowed Callback URL and Allowed Logout URL `https://paul.tail0e5a35.ts.net/`, and Allowed Web Origin `https://paul.tail0e5a35.ts.net`. The operator user also needs the `sorter:operate` permission.
 
 Known limit: browsers that block third-party cookies may ask for sign-in again after a reload.
 

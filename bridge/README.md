@@ -43,26 +43,15 @@ export GEMINI_MODEL='your-supported-image-model-id'
 
 Set keys in your shell environment; never put them in `web/`, a URL, or Git. This mode sends camera images to the configured Gemini API when sorting is enabled. The model ID is explicit rather than hardcoded. The request uses Gemini's `generateContent` REST API with image input and a structured schema.
 
-## Optional Auth0 operator login
+## Auth0 operator login
 
-The dashboard can use Auth0 Universal Login for operator controls. Without Auth0 variables, the local demo works exactly as before. To enable login:
+Auth0 is used only by the public Funnel server (`--public-port`). The laptop dashboard on port 4173 never asks for Auth0, including `--mock` and `--mock-arm`, even when `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, and `AUTH0_AUDIENCE` are set.
 
-1. In Auth0, create a **Single Page Application** and a separate **API**. Give the API an identifier such as `https://sharkbyte.local/api`; this is the audience, not a server URL.
-2. Create the API permission `sorter:operate`. Enable RBAC and **Add Permissions in the Access Token** for that API. Assign the permission to the operator through a role. A signed-in user without this permission cannot send commands.
-3. For the SPA, set **Allowed Callback URLs**, **Allowed Logout URLs**, and **Allowed Web Origins** to `http://127.0.0.1:4173/` (adjust the port if needed). Use the same hostname in the browser.
-4. Install the optional verifier dependency and start the bridge with the three non-secret identifiers:
+When the public port is started and those variables are unset, the bridge uses the project tenant: `dev-ilye6s18ng7ernps.us.auth0.com`, client `rd4I86eUTelgHzFYI9mCdeRgAq0bAz8a`, and audience `https://sharkbyte.local/api`. Set all three together only to point at a different tenant. A partial set fails startup. No client secret is stored.
 
-```sh
-.venv/bin/python -m pip install -r bridge/auth0-requirements.txt
-export AUTH0_DOMAIN='your-tenant.us.auth0.com'
-export AUTH0_CLIENT_ID='your-spa-client-id'
-export AUTH0_AUDIENCE='https://sharkbyte.local/api'
-.venv/bin/python -m bridge --mock
-```
+Public viewers see the dashboard and can press STOP without a login redirect. Operators sign in with Auth0 and need the SharkByte Operator role (`sorter:operate`). The operator password remains a backup. HOME, sorting, camera selection, mock scenarios, and Gemini settings require an operator. State and camera-frame reads stay available.
 
-`GET /api/auth-config` exposes only the public configuration needed by the browser. The dashboard loads Auth0's pinned SPA SDK only in configured mode, uses its Universal Login, and attaches an API access token to control requests. The Python bridge validates the token's signature, issuer, audience, expiry, and `sorter:operate` permission. HOME, sorting, camera selection, mock scenarios, and Gemini settings require the permission. **STOP remains available without login** so an operator can stop the arm immediately. State and camera-frame reads remain available on the local dashboard. Partial Auth0 configuration fails at startup rather than silently leaving controls open. No client secret is needed or stored.
-
-The Auth0 tenant has not yet been created for this project; the configured path is covered by mocked tests but still needs a live login test with the team's tenant before it can be claimed as a working sponsor integration.
+In the Auth0 application, allow callback and logout URL `https://paul.tail0e5a35.ts.net/` and web origin `https://paul.tail0e5a35.ts.net`. Add the same three entries for any other Funnel hostname. The local dashboard does not use those URLs.
 
 ### ESP32-S3 camera source
 

@@ -1,4 +1,4 @@
-// Optional Auth0 operator login. The server remains the authority for every command.
+// Auth0 operator login. The server remains the authority for every command.
 const authPreview = new URLSearchParams(location.search).get('demo') === '1';
 const authGate = document.getElementById('authGate');
 const authMessage = document.getElementById('authMessage');

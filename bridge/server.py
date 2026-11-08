@@ -334,7 +334,9 @@ class DashboardServer(ThreadingHTTPServer):
 
 def make_server(bridge, web, port=4173, source=None, camera_manager=None, auth=None, *,
                 public=False, public_host=None, operator_auth=None):
-    if auth is None:
+    if auth is False:
+        auth = None
+    elif auth is None:
         config = Auth0Config.from_env()
         auth = Auth0Verifier(config) if config else None
     if public and (not public_host or operator_auth is None):

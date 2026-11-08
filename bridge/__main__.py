@@ -36,13 +36,14 @@ def main():
             raise SystemExit(2)
         operator_auth = OperatorAuth(password)
         del password
-    try:
-        cfg = Auth0Config.from_env()
-        auth0 = Auth0Verifier(cfg) if cfg else None
-    except (ValueError, RuntimeError) as exc:
-        message = ' '.join(str(exc).split())
-        print('Auth0 startup failed: ' + message, file=sys.stderr)
-        raise SystemExit(2) from None
+    auth0 = None
+    if args.public_port is not None:
+        try:
+            auth0 = Auth0Verifier(Auth0Config.for_runtime())
+        except (ValueError, RuntimeError) as exc:
+            message = ' '.join(str(exc).split())
+            print('Auth0 startup failed: ' + message, file=sys.stderr)
+            raise SystemExit(2) from None
     try:
         from arm import BINS, ArmConfig, ArmController, PosesError
     except ImportError:
@@ -164,7 +165,9 @@ def main():
     public_thread = None
     binding_port = args.port
     try:
-        server = make_server(bridge, web, args.port, camera_manager=camera, auth=auth0)
+        # Localhost stays open even when Auth0 variables are set. auth=False
+        # stops make_server from building a verifier out of the environment.
+        server = make_server(bridge, web, args.port, camera_manager=camera, auth=False)
         if args.public_port is not None:
             binding_port = args.public_port
             public_server = make_server(bridge, web, args.public_port, camera_manager=camera, auth=auth0,
@@ -179,6 +182,7 @@ def main():
         if public_server is not None:
             print(f'Public port for Funnel only: http://127.0.0.1:{public_server.server_port}'
                   f' -> https://{args.public_host}', flush=True)
+            print('Auth0 operator login is required on the public site. The local dashboard stays open.', flush=True)
         print('SIMULATED ARM' if mock_arm else 'PHYSICAL ARM: verify calibration, taught poses, and power cutoff.', flush=True)
         if predictor is None:
             print('Gemini is not configured; live cameras can preview, but sorting is disabled.', flush=True)

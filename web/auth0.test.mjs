@@ -64,6 +64,7 @@ test('configured Auth0 hides controls until signed in and leaves STOP public', a
   assert.equal(signedOut.calls.at(-1).options.headers, undefined);
   await signedOut.window.fetch('/api/stop', {method: 'POST'});
   assert.equal(signedOut.calls.at(-1).options.headers, undefined);
+  assert.equal(signedOut.calls.some((call) => call.url === 'login'), false);
   await signedOut.element('authSignIn').listeners.click();
   assert.equal(signedOut.calls.at(-1).url, 'login');
 
@@ -86,6 +87,7 @@ test('public Auth0 keeps the dashboard visible and sends the token only on opera
   assert.equal(signedOut.element('authBar').hidden, true);
   assert.equal(signedOut.element('authMessage').textContent,
     'Sign in with Auth0 to control the sorter. Viewing and STOP need no login.');
+  assert.equal(signedOut.calls.some((call) => call.url === 'login'), false);
   await signedOut.window.fetch('/api/login', {method: 'POST'});
   assert.equal(signedOut.calls.at(-1).url, '/api/login');
   assert.equal(signedOut.calls.at(-1).options.headers, undefined);
