@@ -104,20 +104,81 @@ export TIGER_DATABASE_URL='postgres://...'                   # your Tiger Cloud 
 - The writer also creates `sort_events_per_minute`, a real-time TimescaleDB continuous aggregate (per-minute counts and cycle times by bin and outcome) with a refresh policy.
 - `GET /api/sort-history?minutes=60` (read-only, 5–1440 minutes) returns outcome totals, a per-minute series and per-bin counts for the window, and the latest rows. It reads the continuous aggregate, falling back to the table, on its own short-lived connection with a 5 s statement timeout and a 3 s cache. Without the URL it returns `{"enabled": false}`; database errors return a generic `ok: false`. The dashboard's **Sort history · Tiger Data** card under Bin totals shows it.
 
+Real-arm startup needs all of the following:
+
+- Taught `home`, `above_pick`, `pick`, and `above_paper`, `above_plastic`, `above_metal`, `above_organic` poses, plus open/closed gripper settings. Teach them with `python -m arm.teach`.
+- A matching LeRobot calibration file for the configured arm ID; run `lerobot-calibrate` first.
+- `ARM_PORT` set to the verified serial port.
+- Both `GEMINI_API_KEY` and `GEMINI_MODEL` in the environment.
+- An available laptop/USB camera (`--camera`) or a working local ESP32 snapshot source (`--esp32-url`).
+
+Arm setup errors print a next step and exit with status 2. If the dashboard port is occupied, choose another with `--port`; the bridge stops and closes the arm and camera on server startup failure.
+
 ## API
 
 | Route | Behavior |
 | --- | --- |
-| `GET /api/state` | Prediction, controller, counts, camera source/status, simulation, and sorting state |
+| `GET /api/state` | Prediction, controller, counts, camera source/status, simulation, sorting state, and ordered allowed `bins` |
 | `GET /api/sort-history` | Optional Tiger Data summary (`?minutes=5..1440`); `{"enabled": false}` without `TIGER_DATABASE_URL` |
 | `GET /api/frame.jpg` | Latest fresh frame, or 503; live JPEG / mock SVG |
 | `POST /api/stop` | Pause, invalidate pending results, call `arm.stop()` |
 | `POST /api/home` | Pause, invalidate pending results, request operator HOME; 409 if rejected |
+| `POST /api/sort` | JSON `{"bin":"PAPER"}`; manually sort to an allowed bin while automatic sorting is paused; no camera or vision required |
 | `POST /api/sorting` | JSON `{"enabled": true}` or false; start requires READY/connected/fresh camera |
 | `POST /api/mock` | Full simulation only: `{"scenario":"empty"}`; bottle, paper, metal, organic, unknown, camera-offline also supported |
 | `POST /api/camera` | Select `mock`, `usb`, or `esp32` camera source; pauses sorting and clears the old decision |
 
-The server binds only to 127.0.0.1, serves static files only from `web/`, and rejects foreign hosts/origins for commands. Keep it local; it is not an authenticated remote-control service. Pause allows a current move to finish; STOP interrupts it. HOME completion never increments bin counts. Completion callbacks run on the controller notifier thread and update bridge state briefly under a lock; STOP waits outside that lock.
+The server binds only to 127.0.0.1, serves static files only from `web/`, and rejects foreign hosts/origins for commands. The default port is for local operation; use the separate authenticated public port below for remote access. Pause allows a current move to finish; STOP interrupts it. HOME completion never increments bin counts. Completion callbacks run on the controller notifier thread and update bridge state briefly under a lock; STOP waits outside that lock.
+
+`POST /api/sort` returns 200 with `{"accepted":true,"state":...}` when accepted. Rejected manual SORT and HOME requests return 409 with `{"accepted":false,"error":"<reason>","state":...}`: the arm's reason, or, for SORT, "The previous sort is still finishing; try again in a moment." while an earlier sort has not reported DONE yet (the arm shows READY a moment before its DONE reaches the bridge). A missing, non-string, or unsupported bin returns 400 with `{"error":...}`. Manual sorting while automatic sorting is enabled returns 400 with `{"error":"Pause automatic sorting before a manual sort."}`. Bin names must exactly match the uppercase values in `/api/state.bins` (normally PAPER, PLASTIC, METAL, ORGANIC). A manual sort increments its bin count and adds a `Manual` recent-sort record only after the controller reports matching DONE. Automatic sorting remains paused; the pickup area must clear before another automatic sort.
+
+## Online access (Tailscale Funnel)
+
+Run two loopback servers sharing the same arm, camera, and bridge state. The local
+dashboard (`--port`, default **4173**) keeps password-free operator control. The
+separate public server (`--public-port`, for example **4174**) requires an operator
+session for controls, even when a request arrives from localhost. **Never give
+port 4173 (or your chosen local `--port`) to Funnel. Forward only the public port.**
+Funnel forwards HTTPS at `https://<laptop>.<tailnet>.ts.net` to that loopback port;
+request IPs cannot distinguish remote visitors from the local operator.
+
+Set `BRIDGE_OPERATOR_PASSWORD` in the launch shell environment to a private password
+of at least eight characters. It is accepted only through that environment variable,
+never a command-line flag, and the bridge never logs it or writes it to a file.
+Then launch, for example:
+
+```sh
+python -m bridge --mock --public-port 4174 --public-host sorter.tail1234.ts.net
+```
+
+Use your actual Funnel hostname for `--public-host`; it is required whenever
+`--public-port` is set. Missing or short passwords exit with status 2 before opening
+the camera or arm. Startup prints both URLs without printing the password.
+
+Public visitors can load the dashboard, read `GET /api/state`, `GET /api/frame.jpg`, `GET /api/gemini`, `GET /api/sort-history`, `GET /api/auth-config` and `GET /api/operator`, and use **STOP** without logging in. STOP is deliberately
+open to everyone. HOME, manual sort, start/pause sorting, camera selection, mock
+selection, Gemini changes, and `GET /api/cameras` require login.
+
+One `Handler.access()` check decides operator access for protected POSTs and GETs.
+A verified Auth0 token with `sorter:operate` is allowed; a token without the
+permission returns 403 `Operator permission required`; otherwise a public-port
+password session is allowed; a local port with no Auth0 verifier stays open; every
+other request returns 401 `Operator login required`.
+
+`POST /api/login` accepts JSON `{"password":"..."}` and sets an HttpOnly, Secure,
+SameSite=Strict `sorter_session` cookie for 12 hours. Use the public HTTPS URL for
+browser login; the public port's HTTP URL is the local Funnel forwarding target.
+Failed attempts are kept until a correct password. The fifth failure blocks the
+next login for 60 seconds, and each later failure doubles that wait, up to 15
+minutes. A blocked login returns `429` with `Too many attempts. Try again in N
+seconds.` The laptop port (`--port`, default 4173) has no password and no lockout.
+`POST /api/logout` with a live session ends every operator session and expires
+the caller's cookie. A logout without a live session does not end other sessions.
+Sessions stay in memory and disappear on restart. State responses expose `public`
+and `operator` so the dashboard can show the current access level. The local port
+always reports `public: false` and `operator: true`. Requests time out after 30
+seconds, and stopping the bridge closes the listening sockets without waiting for
+a stuck request.
 
 ## Checks
 
