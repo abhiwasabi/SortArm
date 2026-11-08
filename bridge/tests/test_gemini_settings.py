@@ -74,3 +74,13 @@ class GeminiSettingsTests(unittest.TestCase):
         self.assertTrue(result['configured'])
         self.assertEqual(result['model'],'gemini-3.1-flash-lite')
         self.assertNotIn(self.key, json.dumps(result))
+
+    @patch('bridge.gemini_settings.urllib.request.urlopen')
+    def test_connect_prefers_gemini_38_flash(self, request):
+        listing = io.BytesIO(json.dumps({'models': [
+            {'name':'models/gemini-3.5-flash-lite', 'supportedGenerationMethods':['generateContent']},
+            {'name':'models/gemini-3.8-flash', 'supportedGenerationMethods':['generateContent']}
+        ]}).encode())
+        request.side_effect = [listing, io.BytesIO(b'{"candidates":[{"content":{"parts":[{"text":"OK"}]}}]}')]
+        result = connect_gemini(self.manager, {'key': self.key})
+        self.assertEqual(result['model'], 'gemini-3.8-flash')
