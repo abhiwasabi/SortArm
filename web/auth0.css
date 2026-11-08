@@ -1,0 +1,6 @@
+.auth-gate[hidden], .auth-bar[hidden], .content[hidden] { display: none !important; }
+.auth-gate { max-width: 520px; margin: 48px auto; padding: 28px; background: #fff; border: 1px solid #dbe3dc; border-radius: 16px; }
+.auth-gate h1 { margin: 0 0 8px; font-size: 24px; }
+.auth-gate p { color: #57675b; line-height: 1.5; }
+.auth-gate button, .auth-bar button { min-height: 38px; padding: 8px 14px; border: 1px solid #9ab2a0; border-radius: 9px; background: #fff; cursor: pointer; }
+.auth-bar { display: flex; align-items: center; gap: 10px; font-size: 12px; }
