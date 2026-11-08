@@ -722,6 +722,19 @@ test('history shows confirmed sorts once across repeated polls and prediction ch
   assert.equal(h.element('sortToast').textContent, 'Newspaper was sorted to Recycle');
 });
 
+test('the first completed sort after an empty history shows the camera notice', async () => {
+  const h = harness();
+  await h.respond(0, { ...sample, recent_sorts: [] });
+  assert.equal(h.element('sortToast').textContent ?? '', '');
+  const poll = h.run('pollState()');
+  await h.respond(1, { ...sample, recent_sorts: [
+    { id: 'sort-1', label: 'Celsius energy drink can', bin: 'RECYCLE', completed_at: '2026-11-08T11:20:33Z' }
+  ] });
+  await poll;
+  assert.equal(h.element('sortToast').hidden, false);
+  assert.equal(h.element('sortToast').textContent, 'Celsius energy drink can was sorted to Recycle');
+});
+
 test('history distinguishes absent records from API loss', async () => {
   const h = harness();
   await h.respond(0);

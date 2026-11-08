@@ -88,6 +88,7 @@ let stopMinimumSequence = 0;
 let stopConfirmationTimer = null;
 let renderedHistoryKey = null;
 let latestHistoryId = null;
+let historySeen = false;
 let sortToastTimer = null;
 let manualBinsKey = null;
 let manualButtons = [];
@@ -311,21 +312,28 @@ function renderHistory() {
     rows.push(row);
   }
   ui.sortHistory.replaceChildren(...rows);
-  const newest = sorts?.[0];
-  if (!previewMode && newest && latestHistoryId !== null && newest.id !== latestHistoryId) {
-    const destination = BIN_DISPLAY[newest.bin].label.replace(/ bin$/, "");
+  const newest = Array.isArray(sorts) ? sorts[0] : undefined;
+  if (historySeen && !previewMode && newest && newest.id !== latestHistoryId) {
+    const destination = (BIN_DISPLAY[newest.bin]?.label ?? newest.bin).replace(/ bin$/, "");
     ui.historyAnnouncement.textContent = newest.label + " was sorted to " + destination + ".";
     showSortToast(newest.label, destination, newest.bin);
   }
-  if (newest) latestHistoryId = newest.id;
+  if (Array.isArray(sorts)) {
+    historySeen = true;
+    latestHistoryId = newest ? newest.id : null;
+  }
 }
 
 function showSortToast(label, destination, bin) {
   ui.sortToast.hidden = false;
+  ui.sortToast.setAttribute("aria-hidden", "false");
   ui.sortToast.dataset.bin = bin;
   ui.sortToast.textContent = label + " was sorted to " + destination;
   clearTimeout(sortToastTimer);
-  sortToastTimer = setTimeout(() => { ui.sortToast.hidden = true; }, 5000);
+  sortToastTimer = setTimeout(() => {
+    ui.sortToast.hidden = true;
+    ui.sortToast.setAttribute("aria-hidden", "true");
+  }, 5000);
 }
 
 function manualSortAvailable() {
