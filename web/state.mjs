@@ -66,6 +66,8 @@ export function normalizeState(raw) {
     ? raw.camera_source : raw.mock_camera === true ? "mock" : "usb";
 
   return {
+    public: raw.public === true,
+    operator: raw.operator === undefined ? true : raw.operator === true,
     bins: configuredBins(raw.bins),
     bridgeAvailable: typeof raw.sorting_enabled === "boolean",
     sortingEnabled: raw.sorting_enabled === true,

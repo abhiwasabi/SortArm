@@ -9,6 +9,15 @@ const BIN_DISPLAY = {
 
 const byId = (id) => document.getElementById(id);
 const ui = {
+  operatorPanel: byId("operatorPanel"),
+  operatorStatus: byId("operatorStatus"),
+  operatorLoginForm: byId("operatorLoginForm"),
+  operatorPassword: byId("operatorPassword"),
+  operatorLoginButton: byId("operatorLoginButton"),
+  operatorLogoutButton: byId("operatorLogoutButton"),
+  operatorMessage: byId("operatorMessage"),
+  geminiSettings: byId("geminiSettings"),
+  refreshCameraDevices: byId("refreshCameraDevices"),
   toggleCameraButton: byId("toggleCameraButton"),
   stopCameraSettings: byId("stopCameraSettings"),
   runtimeMode: byId("runtimeMode"),
@@ -80,6 +89,11 @@ let renderedHistoryKey = null;
 let latestHistoryId = null;
 let manualBinsKey = null;
 let manualButtons = [];
+let operatorPending = false;
+let accessRevision = 0;
+let renderedOperatorAccess = null;
+let statePollTimer = null;
+let appliedStateSequence = 0;
 
 function setHealth(container, label, health, value) {
   container.dataset.health = health;
@@ -97,6 +111,70 @@ function setNotice(message, tone = "info") {
   ui.notice.hidden = !message;
 }
 
+function operatorAvailable() {
+  return !previewMode && backendOnline && snapshot?.operator === true && !operatorPending;
+}
+
+function renderOperator() {
+  const publicMode = !previewMode && snapshot?.public === true;
+  ui.operatorPanel.hidden = !publicMode;
+  ui.operatorLoginForm.hidden = !publicMode || snapshot.operator;
+  ui.operatorLogoutButton.hidden = !publicMode || !snapshot.operator;
+  ui.operatorStatus.textContent = snapshot?.operator
+    ? "Logged in as operator" : "Viewing only. STOP is available to everyone.";
+  ui.operatorLoginButton.disabled = ui.operatorPassword.disabled = operatorPending || !backendOnline;
+  ui.operatorLogoutButton.disabled = operatorPending || !backendOnline;
+  ui.geminiSettings.hidden = !operatorAvailable();
+  const allowed = operatorAvailable();
+  if (document.documentElement) document.documentElement.dataset.operator = String(allowed);
+  if (renderedOperatorAccess !== allowed) {
+    renderedOperatorAccess = allowed;
+    document.dispatchEvent(new CustomEvent("operator-access", { detail: { operator: allowed } }));
+  }
+}
+
+function operatorRequired() {
+  accessRevision++;
+  if (snapshot) snapshot = { ...snapshot, operator: false };
+  setNotice("Operator login required", "error");
+  render();
+  void pollState();
+}
+
+async function operatorCommand(path) {
+  if (previewMode || !backendOnline || !snapshot?.public || operatorPending) return;
+  if ((path === "/api/login" && snapshot.operator) || (path === "/api/logout" && !snapshot.operator)) return;
+  operatorPending = true;
+  accessRevision++;
+  ui.operatorMessage.textContent = "";
+  ui.operatorMessage.hidden = true;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const request = fetch(path, { method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" }, signal: controller.signal,
+      body: path === "/api/login" ? JSON.stringify({ password: ui.operatorPassword.value }) : "{}" });
+    ui.operatorPassword.value = "";
+    render();
+    const response = await request;
+    const result = await response.json().catch(() => ({}));
+    if (response.status === 401 && path !== "/api/login") { operatorRequired(); return; }
+    if (!response.ok) throw new Error(result.error || "Operator request failed.");
+    accessRevision++;
+    snapshot = result.state ? normalizeState(result.state) : { ...snapshot, operator: path === "/api/login" };
+    setNotice(path === "/api/login" ? "Logged in as operator" : "Logged out. Viewing only.");
+    if (!result.state) void pollState();
+  } catch (error) {
+    ui.operatorMessage.textContent = error.name === "AbortError" ? "Operator request timed out. Try again." : error.message;
+    ui.operatorMessage.hidden = false;
+  } finally {
+    ui.operatorPassword.value = "";
+    clearTimeout(timeout);
+    operatorPending = false;
+    render();
+  }
+}
+
 function showFrame(available) {
   ui.cameraFrame.hidden = !available;
   ui.frameFallback.hidden = available;
@@ -105,7 +183,7 @@ function showFrame(available) {
 function renderCameraSource(usableCamera) {
   ui.cameraSourceCard.hidden = previewMode;
   if (previewMode) return;
-  const available = backendOnline && snapshot?.bridgeAvailable;
+  const available = operatorAvailable() && snapshot?.bridgeAvailable;
   const cameraOff = snapshot?.cameraSource === "off";
   ui.toggleCameraButton.textContent = cameraOff ? "Start camera" : "Stop camera";
   ui.toggleCameraButton.hidden = previewMode;
@@ -122,6 +200,7 @@ function renderCameraSource(usableCamera) {
   ui.esp32CameraFields.hidden = selection !== "esp32";
   ui.usbCameraFields.hidden = !["usb", "iphone"].includes(selection);
   ui.cameraSourceSelect.disabled = !available || controlPending || cameraChangePending;
+  ui.refreshCameraDevices.disabled = !available || cameraChangePending;
   ui.esp32CameraUrl.disabled = !available || controlPending || cameraChangePending;
   ui.applyCameraButton.disabled = !available || controlPending || cameraChangePending ||
     (selection === "esp32" && !ui.esp32CameraUrl.value.trim()) ||
@@ -235,13 +314,13 @@ function renderHistory() {
 }
 
 function manualSortAvailable() {
-  return !previewMode && backendOnline && snapshot?.bridgeAvailable === true &&
+  return operatorAvailable() && snapshot?.bridgeAvailable === true &&
     snapshot.connected && snapshot.armState === "READY" && !snapshot.sortingEnabled &&
     !controlPending && !stopPending && !awaitingStopState;
 }
 
 function renderManualSort(bridgeAvailable) {
-  ui.manualSortCard.hidden = !bridgeAvailable;
+  ui.manualSortCard.hidden = !bridgeAvailable || !operatorAvailable();
   const bins = snapshot?.bins ?? BIN_KEYS;
   const key = JSON.stringify(bins);
   if (key !== manualBinsKey) {
@@ -262,6 +341,7 @@ function renderManualSort(bridgeAvailable) {
 }
 
 function render() {
+  renderOperator();
   if (!previewMode && cameraOnline && (lastFrameAt === null || Date.now() - lastFrameAt > FRAME_STALE_MS)) {
     cameraOnline = false;
   }
@@ -299,9 +379,10 @@ function render() {
   ui.bridgeStatus.textContent = snapshot?.status ?? "";
   ui.runtimeMode.hidden = !previewMode && !snapshot?.simulation;
   ui.runtimeMode.textContent = previewMode ? "SAMPLE PREVIEW" : "SIMULATED ARM";
-  ui.mockControls.hidden = !bridgeAvailable || !snapshot?.mockCamera;
+  ui.mockControls.hidden = !bridgeAvailable || !snapshot?.mockCamera || !operatorAvailable();
+  ui.mockScenario.disabled = !operatorAvailable() || controlPending;
   renderCameraSource(usableCamera);
-  const motionPending = controlPending || stopPending || awaitingStopState;
+  const motionPending = controlPending || stopPending || awaitingStopState || !operatorAvailable();
   ui.homeButton.disabled = motionPending || !bridgeAvailable || !snapshot?.connected || snapshot?.armState === "BUSY";
   ui.sortingButton.disabled = motionPending || !bridgeAvailable || (!snapshot?.sortingEnabled && (!snapshot?.connected || snapshot?.armState !== "READY" || !usableCamera || !snapshot?.visionReady));
   ui.sortingButton.textContent = snapshot?.sortingEnabled ? "Pause sorting" : "Start sorting";
@@ -362,13 +443,18 @@ function armNotResponding(state) {
 }
 
 async function pollState() {
+  clearTimeout(statePollTimer);
+  const revision = accessRevision;
   const requestSequence = ++stateRequestSequence;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch("/api/state", { cache: "no-store", signal: controller.signal });
     if (!response.ok) throw new Error("State request failed: " + response.status);
-    snapshot = normalizeState(await response.json());
+    const state = normalizeState(await response.json());
+    if (revision !== accessRevision || requestSequence < appliedStateSequence) return;
+    appliedStateSequence = requestSequence;
+    snapshot = state;
     backendOnline = true;
     if (snapshot.cameraError) {
       cameraOnline = false;
@@ -393,6 +479,7 @@ async function pollState() {
     }
     if (!snapshot.cameraError) refreshLiveFrame();
   } catch {
+    if (revision !== accessRevision) return;
     if (awaitingStopState) {
       setNotice("Dashboard API was lost before STOP was confirmed. Use the physical power cutoff if needed.", "error");
       awaitingStopState = false;
@@ -404,7 +491,8 @@ async function pollState() {
   } finally {
     clearTimeout(timeout);
     render();
-    setTimeout(pollState, backendOnline ? POLL_MS : RETRY_MS);
+    clearTimeout(statePollTimer);
+    statePollTimer = setTimeout(pollState, backendOnline ? POLL_MS : RETRY_MS);
   }
 }
 
@@ -424,6 +512,7 @@ async function requestStop() {
   const timeout = setTimeout(() => controller.abort(), STOP_REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch("/api/stop", { method: "POST", signal: controller.signal });
+    if (response.status === 401) { operatorRequired(); return; }
     if (!response.ok) throw new Error("Stop request failed: " + response.status);
     awaitingStopState = true;
     stopRequestedAt = Date.now();
@@ -447,15 +536,18 @@ async function requestStop() {
 }
 
 async function bridgeCommand(path, body = {}) {
-  if (previewMode || controlPending || stopPending || awaitingStopState || !backendOnline) return;
+  if (!operatorAvailable() || controlPending || stopPending || awaitingStopState) return;
   if (path === "/api/sort" && (!manualSortAvailable() || !snapshot.bins.includes(body.bin))) return;
   controlPending = true;
+  const revision = accessRevision;
   render();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: controller.signal });
     const result = await response.json();
+    if (revision !== accessRevision) return;
+    if (response.status === 401) { operatorRequired(); return; }
     if (result.state) snapshot = normalizeState(result.state);
     if (!response.ok || result.accepted === false) {
       throw new Error(typeof result.error === "string" && result.error.trim()
@@ -473,7 +565,7 @@ async function bridgeCommand(path, body = {}) {
 }
 
 async function applyCameraSource() {
-  if (previewMode || controlPending || cameraChangePending || !backendOnline || !snapshot?.bridgeAvailable) return;
+  if (!operatorAvailable() || controlPending || cameraChangePending || !snapshot?.bridgeAvailable) return;
   const source = ui.cameraSourceSelect.value;
   if (["usb", "iphone"].includes(source) && !ui.usbCameraDevice.value) {
     setNotice("Selected camera is unavailable or still being detected. Refresh the camera list and try again.", "error");
@@ -486,6 +578,7 @@ async function applyCameraSource() {
     if (ui.usbCameraDevice.value) body.device_id = ui.usbCameraDevice.value;
   }
   cameraChangePending = true;
+  const revision = accessRevision;
   render();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -495,6 +588,8 @@ async function applyCameraSource() {
       body: JSON.stringify(body), signal: controller.signal
     });
     const result = await response.json();
+    if (revision !== accessRevision) return;
+    if (response.status === 401) { operatorRequired(); return; }
     if (!response.ok || result.accepted !== true) throw new Error(result.error || "Camera source was not accepted.");
     snapshot = normalizeState(result.state);
     ui.cameraSourceSelect.dataset.usbKind = source;
@@ -517,8 +612,9 @@ async function applyCameraSource() {
 }
 
 async function stopCamera() {
-  if (previewMode || !backendOnline || cameraChangePending) return;
+  if (!operatorAvailable() || cameraChangePending) return;
   cameraChangePending = true;
+  const revision = accessRevision;
   render();
   try {
     const response = await fetch('/api/camera', {
@@ -526,6 +622,8 @@ async function stopCamera() {
       body: JSON.stringify({source: 'off'})
     });
     const result = await response.json();
+    if (revision !== accessRevision) return;
+    if (response.status === 401) { operatorRequired(); return; }
     if (!response.ok) throw new Error(result.error || 'Could not stop camera.');
     snapshot = normalizeState(result.state);
     frameRequestAt = lastFrameAt = null;
@@ -536,6 +634,9 @@ async function stopCamera() {
   } catch (error) { setNotice(error.message, 'error'); }
   finally { cameraChangePending = false; render(); }
 }
+document.addEventListener("operator-required", operatorRequired);
+ui.operatorLoginForm.addEventListener("submit", event => { event.preventDefault(); void operatorCommand("/api/login"); });
+ui.operatorLogoutButton.addEventListener("click", () => operatorCommand("/api/logout"));
 ui.toggleCameraButton.addEventListener('click', () => snapshot?.cameraSource === 'off' ? applyCameraSource() : stopCamera());
 ui.stopCameraSettings.addEventListener('click', stopCamera);
 ui.homeButton.addEventListener("click", () => bridgeCommand("/api/home"));

@@ -11,7 +11,7 @@ from .adapters import Camera, GeminiPredictor, prediction_error_message
 from .camera_sources import CameraSourceManager, Esp32SnapshotSource, validate_esp32_url
 from .core import Bridge
 from .scene_changes import SceneCadence, scene_signature
-from .server import make_server
+from .server import OperatorAuth, make_server, stop_server
 from .sort_log import SortLog
 
 
@@ -20,9 +20,21 @@ def main():
     parser.add_argument('--mock', action='store_true', help='Simulate both camera and arm; no cloud calls')
     parser.add_argument('--mock-arm', action='store_true', help='Real camera/Gemini, simulated arm')
     parser.add_argument('--port', type=int, default=4173)
+    parser.add_argument('--public-port', type=int, help='Loopback port forwarded by Tailscale Funnel')
+    parser.add_argument('--public-host', help='Funnel hostname, e.g. sorter.tail1234.ts.net')
     parser.add_argument('--camera', type=int, default=0)
     parser.add_argument('--esp32-url', help='Local HTTP JPEG snapshot URL, e.g. http://192.168.1.50/capture')
     args = parser.parse_args()
+    auth = None
+    if args.public_port is not None:
+        if not args.public_host:
+            parser.error('--public-host is required with --public-port')
+        password = os.environ.get('BRIDGE_OPERATOR_PASSWORD', '')
+        if len(password) < 8:
+            print('Public access requires BRIDGE_OPERATOR_PASSWORD with at least 8 characters.', file=sys.stderr)
+            raise SystemExit(2)
+        auth = OperatorAuth(password)
+        del password
     try:
         from arm import BINS, ArmConfig, ArmController, PosesError
     except ImportError:
@@ -140,11 +152,25 @@ def main():
 
     workers = [threading.Thread(target=fn, daemon=True) for fn in (capture_loop, prediction_loop, poll_loop)]
     server = None
+    public_server = None
+    public_thread = None
+    binding_port = args.port
     try:
         server = make_server(bridge, web, args.port, camera_manager=camera)
+        if args.public_port is not None:
+            binding_port = args.public_port
+            public_server = make_server(bridge, web, args.public_port, camera_manager=camera,
+                                        public=True, public_host=args.public_host,
+                                        operator_auth=auth)
+            binding_port = args.port
+            public_thread = threading.Thread(target=public_server.serve_forever, daemon=True)
+            public_thread.start()
         for worker in workers:
             worker.start()
         print(f'Dashboard: http://127.0.0.1:{server.server_port}', flush=True)
+        if public_server is not None:
+            print(f'Public port for Funnel only: http://127.0.0.1:{public_server.server_port}'
+                  f' -> https://{args.public_host}', flush=True)
         print('SIMULATED ARM' if mock_arm else 'PHYSICAL ARM: verify calibration, taught poses, and power cutoff.', flush=True)
         if predictor is None:
             print('Gemini is not configured; live cameras can preview, but sorting is disabled.', flush=True)
@@ -155,7 +181,8 @@ def main():
         pass
     except OSError as exc:
         message = ' '.join(str(exc).split())
-        print(f'Dashboard server failed on port {args.port}: {message} Choose an unused --port.', file=sys.stderr)
+        flag = '--public-port' if binding_port == args.public_port else '--port'
+        print(f'Dashboard server failed on port {binding_port}: {message} Choose an unused {flag}.', file=sys.stderr)
         raise SystemExit(2) from None
     finally:
         shutdown.set()
@@ -163,11 +190,20 @@ def main():
             bridge.stop()
         finally:
             try:
+                # The local server's serve_forever() ran on this thread and has
+                # already returned, so shutdown() on it would deadlock. The
+                # public server is on its own thread and may be stuck.
+                try:
+                    stop_server(public_server, public_thread)
+                finally:
+                    if server is not None:
+                        try:
+                            server.server_close()
+                        except OSError:
+                            pass
                 for worker in workers:
                     if worker.ident is not None:
                         worker.join(timeout=8)
-                if server is not None:
-                    server.server_close()
             finally:
                 try:
                     arm.close()

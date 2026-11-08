@@ -243,6 +243,14 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
 
 /* Laptop bridge controls follow the dashboard's existing card layout. */
 .bridge-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.operator-panel { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+.operator-panel h2 { margin: 4px 0; font-size: 17px; }
+.operator-panel p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.operator-login { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.operator-login label { flex-basis: 100%; font-size: 12px; font-weight: 650; }
+.operator-login input { min-width: 0; width: 200px; max-width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; font: inherit; font-size: 13px; background: white; }
+.operator-login input:focus-visible { outline: 3px solid var(--coral); outline-offset: 2px; }
+.operator-panel .operator-message { flex-basis: 100%; color: var(--red); }
 .manual-sort-card { flex: 0 0 100%; min-width: 0; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: white; }
 .manual-sort-card h3 { margin: 0; font-size: 13px; font-weight: 700; }
 .manual-sort-card p { margin: 7px 0 12px; color: var(--muted); font-size: 11px; line-height: 1.45; }

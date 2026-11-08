@@ -1,18 +1,109 @@
-"""Same-origin local HTTP API plus the existing static dashboard."""
+"""Loopback HTTP API and dashboard, with optional public operator sessions."""
 from .gemini_settings import connect_gemini, disconnect_gemini, gemini_status
 from .auth0_operator import Auth0Config, Auth0Verifier, AuthError
 from functools import partial
+import hmac
+from http.cookies import CookieError, SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
+import secrets
+import socket
+import sys
+import threading
+import time
+from threading import Thread as _Thread
 from urllib.parse import parse_qs, urlsplit
 
 
+class OperatorAuth:
+    """Process-local sessions and a shared lockout; Funnel hides client IPs."""
+    lifetime = 43200
+    lockout_base = 60
+    lockout_cap = 15 * 60
+
+    def __init__(self, password, *, clock=time.monotonic):
+        self.password = password.encode('utf-8')
+        self.clock = clock
+        self.lock = threading.Lock()
+        self.sessions = {}
+        self.failure_count = 0
+        self.blocked_until = 0
+
+    def login(self, password):
+        with self.lock:
+            now = self.clock()
+            if now < self.blocked_until:
+                return 429, None
+            if not isinstance(password, str) or not hmac.compare_digest(
+                    password.encode('utf-8'), self.password):
+                # Keep every failure until a correct password. Waiting out one
+                # block must not restore a fresh set of guesses.
+                self.failure_count += 1
+                if self.failure_count >= 5:
+                    delay = min(self.lockout_base * (2 ** (self.failure_count - 5)),
+                                self.lockout_cap)
+                    self.blocked_until = now + delay
+                return 401, None
+            self.failure_count = 0
+            self.blocked_until = 0
+            self._expire(now)
+            token = secrets.token_urlsafe(32)
+            self.sessions[token] = now + self.lifetime
+            return 200, token
+
+    def retry_after(self):
+        with self.lock:
+            remaining = self.blocked_until - self.clock()
+        if remaining <= 0:
+            return 1
+        return int(remaining + 0.999)
+
+    def _expire(self, now):
+        for token, expiry in list(self.sessions.items()):
+            if expiry <= now:
+                del self.sessions[token]
+
+    def _token(self, cookie):
+        try:
+            cookies = SimpleCookie()
+            cookies.load(cookie or '')
+            value = cookies.get('sorter_session')
+            return value.value if value is not None else None
+        except CookieError:
+            return None
+
+    def valid_session(self, cookie):
+        with self.lock:
+            self._expire(self.clock())
+            return self._token(cookie) in self.sessions
+
+    def logout(self, cookie):
+        with self.lock:
+            # One logout ends every browser. A request with no live session
+            # must not be able to kick a different operator out.
+            token = self._token(cookie)
+            if token in self.sessions:
+                self.sessions.clear()
+
+    def cookie(self, token, *, max_age=lifetime):
+        return (f'sorter_session={token}; HttpOnly; Secure; SameSite=Strict; '
+                f'Path=/; Max-Age={max_age}')
+
+
 class Handler(SimpleHTTPRequestHandler):
-    def __init__(self, *args, bridge, source=None, camera_manager=None, auth=None, directory, **kwargs):
+    # Bound a client that connects and never finishes the request. Gemini
+    # connect is the slowest handler work and gives up after 15 seconds.
+    timeout = 30
+
+    def __init__(self, *args, bridge, source=None, camera_manager=None, auth=None, directory,
+                 public=False, public_host=None, operator_auth=None, **kwargs):
         self.bridge = bridge
         self.source = source
         self.camera_manager = camera_manager
+        self.public = public
+        self.public_host = public_host
+        self.operator_auth = operator_auth
         self.auth = auth
         super().__init__(*args, directory=directory, **kwargs)
 
@@ -26,21 +117,52 @@ class Handler(SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
+        if self.public:
+            self.send_header('X-Frame-Options', 'DENY')
+            self.send_header('Content-Security-Policy', "frame-ancestors 'none'")
+            self.send_header('Referrer-Policy', 'same-origin')
         super().end_headers()
 
-    def send_data(self, status, data, mime):
+    def send_data(self, status, data, mime, *, headers=None):
         self.send_response(status)
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', str(len(data)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
 
-    def send_json(self, status, data):
-        self.send_data(status, json.dumps(data).encode(), 'application/json')
+    def send_json(self, status, data, *, headers=None):
+        self.send_data(status, json.dumps(data).encode(), 'application/json', headers=headers)
+
+    def operator(self):
+        return not self.public or self.operator_auth.valid_session(self.headers.get('Cookie'))
+
+    def state(self, *, operator=None):
+        return dict(self.bridge.snapshot(), public=self.public,
+                    operator=self.operator() if operator is None else operator)
 
     def valid_host(self):
-        return self.headers.get('Host') in (
+        hosts = (
             f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}')
+        if self.public:
+            hosts += (self.public_host, f'{self.public_host}:443')
+        return self.headers.get('Host') in hosts
+
+    def valid_origin(self, origin):
+        if self.public:
+            return origin in (f'https://{self.public_host}',
+                              f'http://127.0.0.1:{self.server.server_port}',
+                              f'http://localhost:{self.server.server_port}')
+        return origin == 'http://' + self.headers.get('Host', '')
+
+    def do_HEAD(self):
+        if self.public:
+            if not self.valid_host():
+                return self.send_error(403)
+            if urlsplit(self.path).path.startswith('/api/'):
+                return self.send_error(405)
+        super().do_HEAD()
 
     def do_GET(self):
         if not self.valid_host():
@@ -54,6 +176,10 @@ class Handler(SimpleHTTPRequestHandler):
             except AuthError as exc:
                 return self.send_json(exc.status, {'authorized': False})
             return self.send_json(200, {'authorized': True, 'sub': claims['sub']})
+        if (self.public and path.startswith('/api/')
+                and path not in ('/api/state', '/api/frame.jpg', '/api/gemini', '/api/sort-history')
+                and not self.operator()):
+            return self.send_json(401, {'error': 'Operator login required'})
         if path == '/api/cameras':
             try:
                 from .camera_devices import enumerate_camera_devices
@@ -65,7 +191,7 @@ class Handler(SimpleHTTPRequestHandler):
         if path == '/api/gemini' and self.camera_manager is not None:
             return self.send_json(200, gemini_status(self.camera_manager))
         if path == '/api/state':
-            return self.send_json(200, self.bridge.snapshot())
+            return self.send_json(200, self.state())
         if path == '/api/sort-history':
             return self.send_sort_history()
         if path == '/api/frame.jpg':
@@ -103,7 +229,7 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         origin = self.headers.get('Origin')
-        if (not self.valid_host() or (origin and origin != 'http://' + self.headers.get('Host', ''))
+        if (not self.valid_host() or (origin and not self.valid_origin(origin))
                 or self.headers.get('Sec-Fetch-Site') == 'cross-site'):
             return self.send_json(403, {'error': 'Use controls on the local dashboard'})
         path = urlsplit(self.path).path
@@ -113,6 +239,9 @@ class Handler(SimpleHTTPRequestHandler):
             except AuthError as exc:
                 return self.send_json(exc.status, {'error': 'Operator login required' if exc.status == 401
                                                    else 'Operator permission required'})
+        if (self.public and path not in ('/api/stop', '/api/login', '/api/logout')
+                and not self.operator()):
+            return self.send_json(401, {'error': 'Operator login required'})
         try:
             length = int(self.headers.get('Content-Length', '0'))
             if length < 0 or length > 4096 or self.headers.get('Transfer-Encoding'):
@@ -120,7 +249,22 @@ class Handler(SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(length) or b'{}')
             if not isinstance(body, dict):
                 raise ValueError('Expected a JSON object')
-            path = urlsplit(self.path).path
+            if self.public and path == '/api/login':
+                status, token = self.operator_auth.login(body.get('password'))
+                if status != 200:
+                    if status == 401:
+                        message = 'Wrong password.'
+                    else:
+                        seconds = self.operator_auth.retry_after()
+                        unit = 'second' if seconds == 1 else 'seconds'
+                        message = f'Too many attempts. Try again in {seconds} {unit}.'
+                    return self.send_json(status, {'error': message})
+                return self.send_json(200, {'operator': True, 'state': self.state(operator=True)},
+                                      headers={'Set-Cookie': self.operator_auth.cookie(token)})
+            if self.public and path == '/api/logout':
+                self.operator_auth.logout(self.headers.get('Cookie'))
+                return self.send_json(200, {'operator': False, 'state': self.state(operator=False)},
+                                      headers={'Set-Cookie': self.operator_auth.cookie('', max_age=0)})
             if path == '/api/gemini' and self.camera_manager is not None:
                 result = (disconnect_gemini(self.camera_manager) if body.get('disconnect') is True
                           else connect_gemini(self.camera_manager, body))
@@ -150,7 +294,7 @@ class Handler(SimpleHTTPRequestHandler):
                 accepted = True
             else:
                 return self.send_json(404, {'error': 'Unknown endpoint'})
-            result = {'accepted': accepted, 'state': self.bridge.snapshot()}
+            result = {'accepted': accepted, 'state': self.state()}
             if not accepted and path in ('/api/home', '/api/sort'):
                 result['error'] = self.bridge.rejection_reason() or (
                     'Arm rejected HOME.' if path == '/api/home' else 'Arm rejected the manual sort.')
@@ -162,10 +306,54 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_json(503, {'error': 'Controller operation failed'})
 
 
-def make_server(bridge, web, port=4173, source=None, camera_manager=None, auth=None):
+class DashboardServer(ThreadingHTTPServer):
+    """Request threads are daemons, so closing the port does not wait on them."""
+    daemon_threads = True
+    block_on_close = False
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (TimeoutError, socket.timeout)):
+            return
+        super().handle_error(request, client_address)
+
+
+def make_server(bridge, web, port=4173, source=None, camera_manager=None, auth=None, *,
+                public=False, public_host=None, operator_auth=None):
     if auth is None:
         config = Auth0Config.from_env()
         auth = Auth0Verifier(config) if config else None
-    handler = partial(Handler, bridge=bridge, source=source, camera_manager=camera_manager, auth=auth,
-                      directory=str(Path(web).resolve()))
-    return ThreadingHTTPServer(('127.0.0.1', port), handler)
+    if public and (not public_host or operator_auth is None):
+        raise ValueError('Public server requires public_host and operator authentication')
+    handler = partial(Handler, bridge=bridge, source=source, camera_manager=camera_manager,
+                      auth=auth, directory=str(Path(web).resolve()), public=public,
+                      public_host=public_host, operator_auth=operator_auth)
+    return DashboardServer(('127.0.0.1', port), handler)
+
+
+def stop_server(server, thread=None, *, timeout=2):
+    """Stop the accept loop, then close the listening socket.
+
+    shutdown() waits until serve_forever returns. A stuck loop must not keep
+    the process in that wait, or the launcher never turns Funnel off. Call
+    shutdown() only while its thread is still inside serve_forever; calling it
+    after the loop has returned deadlocks.
+    """
+    if server is None:
+        return
+    # Bind the thread class at import so a test patch of threading.Thread
+    # cannot turn this deadline into a no-op.
+    if thread is not None and thread.is_alive():
+        stopper = _Thread(target=_shutdown_quietly, args=(server,), daemon=True)
+        stopper.start()
+        stopper.join(timeout)
+    try:
+        server.server_close()
+    except OSError:
+        pass
+
+
+def _shutdown_quietly(server):
+    try:
+        server.shutdown()
+    except Exception:
+        pass

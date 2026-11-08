@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-operator="false">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -52,6 +52,16 @@
 
     <main class="content">
       <p id="notice" class="notice" role="status" aria-live="polite" hidden></p>
+      <section id="operatorPanel" class="operator-panel" aria-labelledby="operatorTitle" hidden>
+        <div><p class="small-label">PUBLIC DASHBOARD</p><h2 id="operatorTitle">Operator access</h2><p id="operatorStatus" role="status">Viewing only. STOP is available to everyone.</p></div>
+        <form id="operatorLoginForm" class="operator-login" method="post" action="/api/login" autocomplete="on">
+          <label for="operatorPassword">Operator password</label>
+          <input id="operatorPassword" name="password" type="password" autocomplete="current-password" required>
+          <button id="operatorLoginButton" class="control-button" type="submit">Log in</button>
+        </form>
+        <button id="operatorLogoutButton" class="control-button" type="button" hidden>Log out</button>
+        <p id="operatorMessage" class="operator-message" role="status" aria-live="polite" hidden></p>
+      </section>
 
       <div id="overview" class="overview-view">
         <section class="overview-card" aria-labelledby="pageTitle">

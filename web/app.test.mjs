@@ -3,17 +3,23 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { BIN_KEYS, derivePrediction, formatCount, normalizeState } from './state.mjs';
+import { chooseCameraDevice } from './camera-choice.mjs';
 
 const source = (await readFile(new URL('./app.mjs', import.meta.url), 'utf8'))
   .replace(/^import .*;\r?\n/, '');
+const cameraModule = (await readFile(new URL('./cameras.mjs', import.meta.url), 'utf8'))
+  .replace(/^import .*;\r?\n/, '');
+const geminiModule = await readFile(new URL('./gemini.mjs', import.meta.url), 'utf8');
 const sample = { label: 'Plastic bottle', confidence: .94, bin: 'PLASTIC',
   connected: true, arm_state: 'BUSY',
   counts: { PAPER: 3, PLASTIC: 4, METAL: 2, ORGANIC: 1 } };
 
-function harness(search = '') {
+function harness(search = '', { modules = false } = {}) {
   const elements = new Map();
   const requests = [];
   const timers = new Map();
+  const events = new EventTarget();
+  const storageWrites = [];
   let now = 100000;
   let timerId = 0;
   class Clock extends Date { static now() { return now; } }
@@ -21,7 +27,11 @@ function harness(search = '') {
     dataset: {}, style: {}, listeners: {}, src: '', value: '', writes: 0, children: [],
     setAttribute() {}, querySelector() { return this; },
     removeAttribute(name) { if (name === 'src') this.src = ''; },
-    addEventListener(name, fn) { this.listeners[name] = fn; },
+    addEventListener(name, fn) {
+      const previous = this.listeners[name];
+      this.listeners[name] = previous ? (...args) => { previous(...args); return fn(...args); } : fn;
+    },
+    dispatchEvent(event) { this.listeners[event.type]?.(event); return true; },
     append(...nodes) { this.children.push(...nodes); },
     replaceChildren(...nodes) { this.children = nodes; }
   });
@@ -33,17 +43,26 @@ function harness(search = '') {
     get() { return this.url; }, set(value) { this.url = value; this.writes++; }
   });
   const context = vm.createContext({
-    BIN_KEYS, derivePrediction, formatCount, normalizeState, Date: Clock,
-    URL, URLSearchParams, AbortController,
-    window: { location: { search } },
-    document: { baseURI: 'http://127.0.0.1:4173/', getElementById: element, createElement: makeElement },
+    BIN_KEYS, derivePrediction, formatCount, normalizeState, chooseCameraDevice, Date: Clock,
+    URL, URLSearchParams, AbortController, Event, CustomEvent,
+    localStorage: { setItem: (...args) => storageWrites.push(args) },
+    sessionStorage: { setItem: (...args) => storageWrites.push(args) },
+    window: { location: { search } }, location: { search },
+    document: { baseURI: 'http://127.0.0.1:4173/', getElementById: element, createElement: makeElement,
+      documentElement: { dataset: { operator: 'false' } },
+      addEventListener: (...args) => events.addEventListener(...args),
+      dispatchEvent: event => events.dispatchEvent(event) },
     setTimeout(fn, ms) { timers.set(++timerId, { fn, ms }); return timerId; },
     clearTimeout(id) { timers.delete(id); },
     fetch(url, options) { return new Promise(resolve => requests.push({ url, options, resolve })); }
   });
   vm.runInContext(source, context);
+  if (modules) {
+    vm.runInContext('(function() {\n' + cameraModule + '\n})();', context);
+    vm.runInContext('(function() {\n' + geminiModule + '\n})();', context);
+  }
   return {
-    element, requests, timers,
+    element, requests, timers, storageWrites,
     advance(ms) { now += ms; },
     run(code) { return vm.runInContext(code, context); },
     async respond(index, state = sample) {
@@ -52,6 +71,245 @@ function harness(search = '') {
     }
   };
 }
+
+test('public viewers cannot operate controls; public operators and local users retain access', async () => {
+  for (const access of [
+    { public: true, operator: false },
+    { public: true, operator: true },
+    { public: false, operator: true },
+    {}
+  ]) {
+    const h = harness();
+    await h.respond(0, { ...sample, arm_state: 'READY', sorting_enabled: false,
+      mock_camera: true, ...access });
+    h.element('cameraFrame').listeners.load();
+    const allowed = access.operator !== false;
+    assert.equal(h.element('operatorPanel').hidden, access.public !== true);
+    assert.equal(h.element('homeButton').disabled, !allowed);
+    assert.equal(h.element('sortingButton').disabled, !allowed);
+    assert.equal(h.element('manualSortCard').hidden, !allowed);
+    assert.equal(h.element('cameraSourceSelect').disabled, !allowed);
+    assert.equal(h.element('refreshCameraDevices').disabled, !allowed);
+    assert.equal(h.element('toggleCameraButton').disabled, !allowed);
+    assert.equal(h.element('stopCameraSettings').disabled, !allowed);
+    assert.equal(h.element('mockScenario').disabled, !allowed);
+    assert.equal(h.element('geminiSettings').hidden, !allowed);
+    assert.equal(h.element('stopButton').disabled, false);
+    if (!allowed) {
+      assert.equal(h.element('operatorStatus').textContent, 'Viewing only. STOP is available to everyone.');
+      assert.equal(h.element('operatorLoginForm').hidden, false);
+      for (const command of ['bridgeCommand("/api/home")',
+        'bridgeCommand("/api/sorting", { enabled: true })',
+        'bridgeCommand("/api/sort", { bin: "PAPER" })',
+        'bridgeCommand("/api/mock", { scenario: "paper" })',
+        'applyCameraSource()', 'stopCamera()']) await h.run(command);
+      assert.equal(h.requests.length, 1);
+    }
+  }
+});
+
+test('a viewer can send STOP without logging in', async () => {
+  const h = harness();
+  await h.respond(0, { ...sample, public: true, operator: false, sorting_enabled: false });
+  const stop = h.run('requestStop()');
+  assert.equal(h.requests[1].url, '/api/stop');
+  await h.respond(1, { accepted: true });
+  await stop;
+});
+
+test('operator login clears the password immediately, uses the cookie session and restores controls', async () => {
+  const h = harness();
+  const state = { ...sample, arm_state: 'READY', sorting_enabled: false, public: true, operator: false };
+  await h.respond(0, state);
+  h.element('operatorPassword').value = 'example operator password';
+  const login = h.run('operatorCommand("/api/login")');
+  assert.equal(h.requests[1].url, '/api/login');
+  assert.equal(h.requests[1].options.credentials, 'same-origin');
+  assert.deepEqual(JSON.parse(h.requests[1].options.body), { password: 'example operator password' });
+  assert.equal(h.element('operatorPassword').value, '');
+  assert.equal(h.element('operatorLoginButton').disabled, true);
+  await h.respond(1, { operator: true, state: { ...state, operator: true } });
+  await login;
+  assert.equal(h.element('operatorStatus').textContent, 'Logged in as operator');
+  assert.equal(h.element('operatorLoginForm').hidden, true);
+  assert.equal(h.element('operatorLogoutButton').hidden, false);
+  assert.equal(h.element('homeButton').disabled, false);
+  assert.equal(h.element('manualSortCard').hidden, false);
+  assert.equal(h.element('geminiSettings').hidden, false);
+  assert.equal(h.element('operatorPassword').value, '');
+  assert.deepEqual(h.storageWrites, []);
+  assert.equal(h.run('JSON.stringify(snapshot).includes("example operator password")'), false);
+  assert.equal(h.run('typeof password'), 'undefined');
+});
+
+test('login displays both 401 and 429 errors and never retains a failed password', async () => {
+  for (const [status, error] of [[401, 'Wrong password.'], [429, 'Too many attempts. Try again in 60 seconds.']]) {
+    const h = harness();
+    await h.respond(0, { ...sample, public: true, operator: false });
+    h.element('operatorPassword').value = 'wrong test password';
+    const login = h.run('operatorCommand("/api/login")');
+    assert.equal(h.element('operatorPassword').value, '');
+    h.requests[1].resolve({ ok: false, status, json: async () => ({ error }) });
+    await login;
+    assert.equal(h.element('operatorMessage').textContent, error);
+    assert.equal(h.element('operatorMessage').hidden, false);
+    assert.equal(h.element('operatorPassword').value, '');
+    assert.equal(h.element('operatorLoginForm').hidden, false);
+    assert.equal(h.element('homeButton').disabled, true);
+    assert.deepEqual(h.storageWrites, []);
+  }
+});
+
+test('logout returns to viewing mode and refreshes state when the response has no state', async () => {
+  const h = harness();
+  const state = { ...sample, arm_state: 'READY', sorting_enabled: false, public: true, operator: true };
+  await h.respond(0, state);
+  const logout = h.run('operatorCommand("/api/logout")');
+  assert.equal(h.requests[1].url, '/api/logout');
+  assert.deepEqual(JSON.parse(h.requests[1].options.body), {});
+  await h.respond(1, {});
+  await logout;
+  assert.equal(h.element('operatorLogoutButton').hidden, true);
+  assert.equal(h.element('operatorLoginForm').hidden, false);
+  assert.equal(h.element('homeButton').disabled, true);
+  assert.equal(h.element('stopButton').disabled, false);
+  assert.equal(h.requests[2].url, '/api/state');
+  await h.respond(2, { ...state, operator: false });
+});
+
+test('401 from each main control revokes operator access and immediately refreshes state', async () => {
+  for (const command of ['bridgeCommand("/api/home")',
+    'bridgeCommand("/api/sort", { bin: "PAPER" })',
+    'bridgeCommand("/api/sorting", { enabled: true })',
+    'bridgeCommand("/api/mock", { scenario: "paper" })',
+    'applyCameraSource()', 'stopCamera()']) {
+    const h = harness();
+    const state = { ...sample, arm_state: 'READY', sorting_enabled: false, public: true, operator: true,
+      camera_source: 'esp32', camera_url: 'http://192.168.1.50/capture' };
+    await h.respond(0, state);
+    const pending = h.run(command);
+    h.requests[1].resolve({ ok: false, status: 401, json: async () => ({ error: 'Operator login required' }) });
+    await pending;
+    assert.equal(h.element('notice').textContent, 'Operator login required', command);
+    assert.equal(h.element('homeButton').disabled, true, command);
+    assert.equal(h.element('operatorLoginForm').hidden, false, command);
+    assert.equal(h.requests[2].url, '/api/state', command);
+    await h.respond(2, { ...state, operator: false });
+  }
+});
+
+test('state requests begun before login cannot overwrite the new operator session', async () => {
+  const h = harness();
+  const state = { ...sample, public: true, operator: false };
+  await h.respond(0, state);
+  const oldPoll = h.run('pollState()');
+  h.element('operatorPassword').value = 'test password';
+  const login = h.run('operatorCommand("/api/login")');
+  await h.respond(2, { operator: true, state: { ...state, operator: true } });
+  await login;
+  await h.respond(1, state);
+  await oldPoll;
+  assert.equal(h.element('operatorStatus').textContent, 'Logged in as operator');
+});
+
+test('a delayed command response cannot restore operator access after logout', async () => {
+  const h = harness();
+  const state = { ...sample, arm_state: 'READY', sorting_enabled: false, public: true, operator: true };
+  await h.respond(0, state);
+  const home = h.run('bridgeCommand("/api/home")');
+  const logout = h.run('operatorCommand("/api/logout")');
+  await h.respond(2, { operator: false, state: { ...state, operator: false } });
+  await logout;
+  await h.respond(1, { accepted: true, state });
+  await home;
+  assert.equal(h.element('operatorStatus').textContent, 'Viewing only. STOP is available to everyone.');
+  assert.equal(h.element('homeButton').disabled, true);
+  assert.match(h.element('notice').textContent, /Logged out/);
+});
+
+test('operator panel stays hidden in demo mode and local mode never attempts login', async () => {
+  const demo = harness('?demo=1');
+  assert.equal(demo.element('operatorPanel').hidden, true);
+  await demo.run('operatorCommand("/api/login")');
+  await demo.run('operatorCommand("/api/logout")');
+  assert.equal(demo.requests.length, 0);
+  const local = harness();
+  await local.respond(0);
+  assert.equal(local.element('operatorPanel').hidden, true);
+  await local.run('operatorCommand("/api/login")');
+  assert.equal(local.requests.length, 1);
+});
+
+test('viewer modules do not discover cameras or send Gemini commands, then discover cameras on login', async () => {
+  const h = harness('', { modules: true });
+  const state = { ...sample, public: true, operator: false, sorting_enabled: false,
+    camera_source: 'esp32', camera_url: 'http://192.168.1.50/capture' };
+  assert.equal(h.requests.some(request => request.url === '/api/cameras'), false);
+  await h.respond(0, state);
+  await h.respond(1, { configured: false, model: null });
+  assert.equal(h.element('geminiSettings').hidden, true);
+  h.element('geminiKey').value = 'example Gemini key';
+  h.element('geminiSettings').listeners.submit({ preventDefault() {} });
+  h.element('geminiDisconnect').listeners.click();
+  assert.equal(h.requests.some(request => request.options?.method === 'POST'), false);
+  assert.equal(h.requests.some(request => request.url === '/api/cameras'), false);
+  assert.equal(h.element('cameraSourceError').hidden, true);
+  h.element('operatorPassword').value = 'example password';
+  const login = h.run('operatorCommand("/api/login")');
+  await h.respond(2, { operator: true, state: { ...state, operator: true } });
+  await login;
+  assert.equal(h.requests[3].url, '/api/cameras');
+  assert.equal(h.requests[4].url, '/api/gemini');
+  await h.respond(3, { devices: [{ id: 'webcam', name: 'Laptop webcam', index: 0 }] });
+  await h.respond(4, { configured: false, model: null });
+  assert.equal(h.requests[5].url, '/api/state');
+  await h.respond(5, { ...state, operator: true });
+  assert.equal(h.element('geminiSettings').hidden, false);
+  assert.equal(h.element('geminiConnect').disabled, false);
+  assert.equal(h.element('refreshCameraDevices').disabled, false);
+});
+
+test('camera discovery 401 shows the login requirement and refreshes state without retrying discovery', async () => {
+  const h = harness('', { modules: true });
+  const state = { ...sample, public: true, operator: true, sorting_enabled: false };
+  await h.respond(0, state);
+  const discovery = h.requests.findIndex(request => request.url === '/api/cameras');
+  h.requests[discovery].resolve({ ok: false, status: 401,
+    json: async () => ({ error: 'Operator login required' }) });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.element('notice').textContent, 'Operator login required');
+  assert.equal(h.element('cameraDeviceHelp').textContent, 'Operator login required');
+  assert.equal(h.element('refreshCameraDevices').disabled, true);
+  const stateRequests = h.requests.map((request, index) => ({ ...request, index }))
+    .filter(request => request.url === '/api/state');
+  assert.equal(stateRequests.length, 2);
+  await h.respond(stateRequests[1].index, { ...state, operator: false });
+  assert.equal(h.requests.filter(request => request.url === '/api/cameras').length, 1);
+});
+
+test('Gemini command 401 refreshes state and cannot re-enable controls after viewer mode', async () => {
+  const h = harness('', { modules: true });
+  const state = { ...sample, public: true, operator: true, sorting_enabled: false };
+  await h.respond(0, state);
+  for (const [index, request] of h.requests.entries()) {
+    if (request.url === '/api/gemini') await h.respond(index, { configured: false, model: null });
+  }
+  h.element('geminiKey').value = 'example Gemini key';
+  h.element('geminiSettings').listeners.submit({ preventDefault() {} });
+  const command = h.requests.findIndex(request => request.url === '/api/gemini' && request.options?.method === 'POST');
+  assert.ok(command >= 0);
+  h.requests[command].resolve({ ok: false, status: 401, json: async () => ({ error: 'Operator login required' }) });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.element('geminiMessage').textContent, 'Operator login required');
+  assert.equal(h.element('notice').textContent, 'Operator login required');
+  assert.equal(h.element('geminiSettings').hidden, true);
+  assert.equal(h.element('geminiConnect').disabled, true);
+  assert.equal(h.element('geminiDisconnect').disabled, true);
+  assert.equal(h.element('geminiKey').value, '');
+  const refresh = h.requests.findIndex((request, index) => index > command && request.url === '/api/state');
+  await h.respond(refresh, { ...state, operator: false });
+  assert.equal(h.requests.filter(request => request.url === '/api/gemini' && request.options?.method === 'POST').length, 1);
+});
 
 test('slow frames survive state polls and retry after the frame deadline', async () => {
   const h = harness();

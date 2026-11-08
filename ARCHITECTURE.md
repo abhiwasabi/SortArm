@@ -120,7 +120,23 @@ The bridge serves `web/` and this API on `127.0.0.1` only. POST requests must se
 | `POST /api/mock` | `{scenario}` | 200 or 400 (simulation only) | No |
 | `POST /api/gemini` | `{key, model?}` or `{disconnect: true}` | `{configured, model}` | No (pauses auto-sorting) |
 
-`GET /api/state` returns `label`, `confidence`, `bin`, `arm_state` (READY/BUSY/DONE/ERROR), `arm_detail` (the error text, or the running command while BUSY), `connected`, `bins` (the allowed bins, in order), and `counts` with exactly the keys `PAPER`, `PLASTIC`, `METAL`, `ORGANIC`. It also carries `recent_sorts` (completed sorts, added from the DONE callback), `sorting_enabled`, `status`, the camera and vision fields, and an optional `prediction_at` (ISO 8601). Details and examples: `web/README.md` and `bridge/README.md`.
+`GET /api/state` returns `label`, `confidence`, `bin`, `arm_state` (READY/BUSY/DONE/ERROR), `arm_detail` (the error text, or the running command while BUSY), `connected`, `bins` (the allowed bins, in order), and `counts` with exactly the keys `PAPER`, `PLASTIC`, `METAL`, `ORGANIC`. It also carries `recent_sorts` (completed sorts, added from the DONE callback), `sorting_enabled`, `status`, the camera and vision fields, an optional `prediction_at` (ISO 8601), and `public` / `operator` (see Online access). Details and examples: `web/README.md` and `bridge/README.md`.
+
+### Online access (#36)
+
+The site goes online through **Tailscale Funnel** while the arm stays on the laptop. Full steps: [docs/RUN_ONLINE.md](docs/RUN_ONLINE.md).
+
+- **Two ports** on `127.0.0.1` share one bridge and arm:
+  - the **local port** (4173): unchanged, no password, never exposed;
+  - the **public port** (`--public-port`, e.g. 4174): the only one given to Funnel, and it always enforces the operator session.
+  - Funnel traffic arrives from the laptop itself, so address or Host can't separate remote viewers from the local operator.
+- **On the public port, without logging in:** the dashboard, `GET /api/state`, `GET /api/frame.jpg`, `GET /api/gemini`, and **`POST /api/stop`**. Anyone watching can stop the arm.
+- **Operator only** (`POST /api/login` with the password from env `BRIDGE_OPERATOR_PASSWORD`): home, sort, sorting, camera, mock, Gemini changes, and `GET /api/cameras`. Without a session these return 401.
+  - The session is an HttpOnly, Secure, SameSite=Strict cookie. Logout from one browser ends every operator session.
+  - Failed logins are remembered until a correct password. The wait starts at 60 seconds and doubles, up to 15 minutes. The local port has no lockout.
+  - Host and Origin are checked against `--public-host`.
+  - Stopping the bridge closes both ports without waiting for a stuck request.
+- **`/api/state.public`** is true on the public port. **`/api/state.operator`** is true on the local port, or with a valid session. The dashboard disables every control except STOP for viewers.
 
 ## Hardware
 

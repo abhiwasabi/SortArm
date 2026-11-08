@@ -14,11 +14,25 @@ Open `http://localhost:4173/?demo=1`. This shows illustrative items, counts, and
 
 ## Use with the laptop backend
 
+### Public viewers and operators
+
+The normal local port (default `4173`) keeps password-free control. The separate public port is intended for the Tailscale Funnel HTTPS URL: anyone may watch the camera, prediction, arm state and counts, and **STOP is available to everyone**. Only an authenticated operator may issue other commands or enumerate laptop cameras. See [bridge online setup](../bridge/README.md#online-access-tailscale-funnel) for the separate public listener and password configuration. Forward the public listener to Funnel, not the password-free local port.
+
+`GET /api/state` includes `public` and `operator`. A public viewer receives `{public: true, operator: false}`; after login the public state reports `operator: true`. Local responses use `{public: false, operator: true}`. Missing fields default to local/operator behavior for older bridges.
+
+On a public dashboard, the **Operator access** panel offers a password field and **Log in**, or displays **Logged in as operator** with **Log out**. Login sends `POST /api/login {password}` using same-origin credentials; the bridge sets an HttpOnly session cookie, which the browser handles. The dashboard clears the password field immediately after starting each attempt, clears it on failures too, and never writes the password to localStorage, sessionStorage, state snapshots, or a global variable. The password input supports the browser's `current-password` autocomplete. Wrong-password (`401`) and rate-limit (`429`) messages are displayed verbatim. Logout sends `POST /api/logout` and returns to viewer mode. On the bridge, that logout also ends any other operator session.
+
+Viewers cannot use Home, Start/Pause sorting, manual sorting, camera selection or Start/Stop camera, Gemini connect/disconnect, or mock scenarios. Camera discovery waits until operator access is known and runs after login. Viewer mode itself does not produce an error. The panel is hidden on the local port and in `?demo=1`; the sample preview continues to make no API or hardware commands.
+
+An expired session that causes a command or camera-discovery `401` displays **Operator login required**, immediately disables operator controls and refreshes state. Commands are not retried automatically. State and command responses that predate login/logout are ignored so they cannot restore stale permissions. The bridge enforces authorization; hiding controls in the browser is only the interface behavior.
+
+### Endpoints
+
 The laptop bridge serves `web/` at the same origin as these endpoints. POST bodies are JSON objects; use `{}` for commands with no parameters. Motion entries below describe hardware mode; the simulated bridge runs the same commands without moving a physical arm.
 
 | Endpoint | Request | Response | Moves the arm? |
 | --- | --- | --- | --- |
-| `GET /api/state` | No body | Current state: prediction, `bins`, `arm_state`, `arm_detail`, `connected`, `sorting_enabled`, camera/vision status, confirmed `counts`, and optional `recent_sorts`; see example below | No |
+| `GET /api/state` | No body | Current state: `public`, `operator`, prediction, `bins`, `arm_state`, `arm_detail`, `connected`, `sorting_enabled`, camera/vision status, confirmed `counts`, and optional `recent_sorts`; see example below | No |
 | `GET /api/frame.jpg` | No body; optional cache-busting query | Latest fresh JPEG frame, or the selected mock image with its image content type; `503 {error}` if unavailable | No |
 | `GET /api/cameras` | No body | `{devices: [{id, name, index}]}` for connected camera devices; `503 {error}` if enumeration fails | No |
 | `GET /api/gemini` | No body | `{configured: boolean, model: string or null}`; never returns the API key | No |
@@ -29,13 +43,17 @@ The laptop bridge serves `web/` at the same origin as these endpoints. POST bodi
 | `POST /api/camera` | `{source: "usb", index: 0, device_id: "optional device ID"}`, `{source: "esp32", url: "http://192.168.1.50/capture"}`, `{source: "mock"}`, or `{source: "off"}` | `200 {accepted: true, state}`; invalid/unavailable source: `400 {error}` | No direct move; pauses automatic sorting and clears prior camera/prediction data |
 | `POST /api/mock` | `{scenario: "empty"}`; also `bottle`, `paper`, `metal`, `organic`, `unknown`, or `camera-offline` | `200 {accepted: true, state}`; invalid scenario or inactive mock camera: `400 {error}` | No direct move; a supported sample can trigger a sort if automatic sorting is enabled |
 | `POST /api/gemini` | Connect: `{key: "API key", model: "optional model ID"}`; disconnect: `{disconnect: true}` | `{configured: boolean, model: string or null}`; validation/provider failure: `400 {error}`. Credentials stay in server process memory; connecting and disconnecting pause sorting | No |
+| `POST /api/login` | `{password: "operator password"}` on the public listener | `200 {operator: true, state}` and an HttpOnly session cookie; `401 {error: "Wrong password."}` or `429 {error: "Too many attempts. Try again in 60 seconds."}` (the wait doubles on later failures, up to 15 minutes) | No |
+| `POST /api/logout` | `{}` on the public listener | `200 {operator: false, state}` and an expired session cookie. A live session also ends every other operator session | No |
 
-Control endpoints require the local, same-origin dashboard (`403 {error}` otherwise). Unexpected controller-operation failures return `503 {error}`. A successful Home or Sort POST means the command was accepted, not that the move completed. The dashboard displays the response body's `error` when Home, Sort, or Sorting is rejected.
+Control endpoints require the configured same-origin dashboard (`403 {error}` otherwise). On the public listener, Home, Sort, Sorting, Camera, Mock and Gemini POSTs plus `GET /api/cameras` also require an operator session (`401 {error: "Operator login required"}` otherwise). State, frames, Gemini's credential-free status and STOP remain public. Unexpected controller-operation failures return `503 {error}`. A successful Home or Sort POST means the command was accepted, not that the move completed. The dashboard displays the response body's `error` when Home, Sort, or Sorting is rejected.
 
 Example state:
 
 ```json
 {
+  "public": false,
+  "operator": true,
   "label": "plastic bottle",
   "confidence": 0.94,
   "bin": "PLASTIC",
@@ -72,5 +90,7 @@ In the backend-served dashboard, **Settings → Choose a camera** selects the si
 ## Dashboard checks
 
 Run `node --test web/*.test.mjs` and `node --check web/app.mjs`. The app tests simulate delayed frame loads, in-flight state requests during STOP, unknown controller states, the STOP confirmation deadline, and completed-sort history updates.
+
+Operator tests cover the public viewer/public operator/local access matrix, viewer STOP, successful login, incorrect passwords and rate limits, logout, immediate password clearing without browser storage, command `401` state refresh, delayed pre-login responses, viewer isolation in camera/Gemini modules, camera discovery after login, and hiding the panel in local/sample mode.
 
 The STOP POST has an eight-second request timeout to allow for the controller's potentially slow stop operation. STOP confirmation is evaluated only from state requests begun after the POST succeeds, and only a connected `ERROR` state confirms it; `READY`, `DONE`, and unrecognized states do not. Home, Start sorting, and manual sort buttons remain disabled while STOP is being sent or awaiting confirmation. The five-second confirmation warning starts after a successful POST and runs independently of polling. On confirmation the dashboard says, "Arm stopped. Check it is clear, then press Home arm to recover." An ERROR state also displays the arm detail and Home recovery hint; disconnected states preserve connection-loss detail, and BUSY states show the running command. These checks do not replace testing with the backend and physical controller.

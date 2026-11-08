@@ -12,6 +12,17 @@ const sample = {
   prediction_at: "2026-11-07T05:30:00Z"
 };
 
+test('access defaults preserve older local bridges and honor public viewer/operator state', () => {
+  assert.equal(normalizeState(sample).public, false);
+  assert.equal(normalizeState(sample).operator, true);
+  assert.equal(normalizeState({ ...sample, public: true, operator: false }).public, true);
+  assert.equal(normalizeState({ ...sample, public: true, operator: false }).operator, false);
+  assert.equal(normalizeState({ ...sample, public: true, operator: true }).operator, true);
+  for (const invalid of [null, 'true', 1]) {
+    assert.equal(normalizeState({ ...sample, operator: invalid }).operator, false);
+  }
+});
+
 test('manual bins default for older bridges and preserve a configured subset and order', () => {
   assert.deepEqual(normalizeState(sample).bins, ['PAPER', 'PLASTIC', 'METAL', 'ORGANIC']);
   assert.deepEqual(normalizeState({ ...sample, bins: ['METAL', 'PAPER'] }).bins, ['METAL', 'PAPER']);
