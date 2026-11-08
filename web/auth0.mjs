@@ -126,6 +126,15 @@ function withToken(options, token) {
 window.fetch = async (input, options = {}) => {
   const url = new URL(typeof input === 'string' ? input : input.url, location.href);
   const method = (options.method || (typeof input !== 'string' && input.method) || 'GET').toUpperCase();
+  // The operator panel's Log out ends the password session on the bridge. An Auth0
+  // login would keep the page an operator, so end that too once the bridge has answered.
+  if (url.origin === location.origin && url.pathname === '/api/logout' && method === 'POST'
+      && authClient && operatorAuthorized) {
+    const response = await originalFetch(input, options);
+    operatorAuthorized = false;
+    authClient.logout({logoutParams: {returnTo: location.origin + '/'}});
+    return response;
+  }
   if (url.origin !== location.origin || !url.pathname.startsWith('/api/') || openPaths.has(url.pathname)) {
     return originalFetch(input, options);
   }
