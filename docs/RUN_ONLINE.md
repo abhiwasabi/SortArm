@@ -87,7 +87,7 @@ Known limit: browsers that block third-party cookies may ask for sign-in again a
 - **Use a long, unique operator password, and change it after the event.** It lives only in the PowerShell window's environment.
 - **Never run `tailscale funnel 4173`.** The local port has no password and no login lockout. Wrong guesses on the public URL do not lock the laptop dashboard.
 - Anyone with the link can press STOP. That's intended: a viewer can always stop the arm, but nothing else.
-- Wrong passwords on the public URL share one lockout. It starts at 60 seconds and doubles after each later failure, up to 15 minutes. The count stays until a correct password.
+- Wrong passwords on the public URL share one lockout. It starts at 60 seconds and doubles after each later failure, up to 15 minutes. The count stays until a correct password. So anyone with the link can keep the password login locked out by guessing. If that happens on demo day, operate from the laptop dashboard (`http://127.0.0.1:4173`) or sign in with Auth0.
 - **Log out** ends operator access in every browser that had logged in. A visitor who is not logged in cannot log the operator out.
 - Ctrl+C closes the bridge even if a web request is stuck. The script then turns Funnel off even if the bridge process has not exited.
 
