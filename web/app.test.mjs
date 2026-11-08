@@ -112,7 +112,7 @@ test('public Auth0 tells a viewer they can sign in above the password form', asy
   const h = harness('', { auth0: true });
   await h.respond(0, { ...sample, public: true, operator: false, sorting_enabled: false });
   assert.equal(h.element('operatorStatus').textContent,
-    'Viewing only. STOP is available to everyone, or sign in with Auth0 above.');
+    'Auth0 login is required before starting. STOP stays available.');
   assert.equal(h.element('operatorPanel').hidden, false);
   assert.equal(h.element('homeButton').disabled, true);
   assert.equal(h.element('stopButton').disabled, false);

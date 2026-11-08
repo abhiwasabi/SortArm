@@ -124,7 +124,7 @@ function renderOperator() {
   ui.operatorStatus.textContent = snapshot?.operator
     ? "Logged in as operator"
     : auth0Hint
-      ? "Viewing only. STOP is available to everyone, or sign in with Auth0 above."
+      ? "Auth0 login is required before starting. STOP stays available."
       : "Viewing only. STOP is available to everyone.";
   ui.operatorLoginButton.disabled = ui.operatorPassword.disabled = operatorPending || !backendOnline;
   ui.operatorLogoutButton.disabled = operatorPending || !backendOnline;

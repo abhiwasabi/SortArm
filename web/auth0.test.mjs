@@ -21,7 +21,9 @@ function harness(config, authenticated = false, { tokenError = false } = {}) {
       return {ok: true, json: async () => url === '/api/operator'
         ? {authorized: true, sub: 'operator'} : config};
     },
-    auth0: {createAuth0Client: async () => ({
+    auth0: {createAuth0Client: async (options) => {
+      calls.push({url: 'client', options});
+      return {
       isAuthenticated: async () => authenticated,
       getUser: async () => ({name: 'Test Operator'}),
       getTokenSilently: async () => {
@@ -29,9 +31,10 @@ function harness(config, authenticated = false, { tokenError = false } = {}) {
         issuedToken = true;
         return 'signed-token';
       },
-      loginWithRedirect: async () => { calls.push({url: 'login'}); },
+      loginWithRedirect: async (options) => { calls.push({url: 'login', options}); },
       logout: () => { calls.push({url: 'logout'}); }
-    })}
+      };
+    }}
   };
   const document = {getElementById: element, querySelector: () => element('content'),
     documentElement: {dataset: {}},
@@ -64,7 +67,9 @@ test('configured Auth0 hides controls until signed in and leaves STOP public', a
   assert.equal(signedOut.calls.at(-1).options.headers, undefined);
   await signedOut.window.fetch('/api/stop', {method: 'POST'});
   assert.equal(signedOut.calls.at(-1).options.headers, undefined);
-  assert.equal(signedOut.calls.some((call) => call.url === 'login'), true);
+  const login = signedOut.calls.find((call) => call.url === 'login');
+  assert.equal(login.options.authorizationParams.prompt, 'login');
+  assert.equal(signedOut.calls.find((call) => call.url === 'client').options.cacheLocation, 'memory');
   await signedOut.element('authSignIn').listeners.click();
   assert.equal(signedOut.calls.at(-1).url, 'login');
 
@@ -78,16 +83,16 @@ test('configured Auth0 hides controls until signed in and leaves STOP public', a
   assert.equal(signedIn.calls.at(-1).url, 'logout');
 });
 
-test('public Auth0 keeps the dashboard visible and sends the token only on operator reads', async () => {
+test('public Auth0 requires login before the sorter and sends the token only on operator reads', async () => {
   const config = {enabled: true, public: true, domain: 'example.us.auth0.com', clientId: 'client', audience: 'https://sorter'};
   const signedOut = harness(config);
   await signedOut.ready;
-  assert.equal(signedOut.element('content').hidden, false);
+  assert.equal(signedOut.element('content').hidden, true);
   assert.equal(signedOut.element('authGate').hidden, false);
   assert.equal(signedOut.element('authBar').hidden, true);
   assert.equal(signedOut.element('authMessage').textContent,
-    'Sign in with Auth0 to control the sorter. Viewing and STOP need no login.');
-  assert.equal(signedOut.calls.some((call) => call.url === 'login'), false);
+    'Auth0 login is required before starting. STOP remains available.');
+  assert.equal(signedOut.calls.some((call) => call.url === 'login'), true);
   await signedOut.window.fetch('/api/login', {method: 'POST'});
   assert.equal(signedOut.calls.at(-1).url, '/api/login');
   assert.equal(signedOut.calls.at(-1).options.headers, undefined);

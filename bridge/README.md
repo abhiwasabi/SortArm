@@ -45,11 +45,11 @@ Set keys in your shell environment; never put them in `web/`, a URL, or Git. Thi
 
 ## Auth0 operator login
 
-The demo asks for Auth0 before the operator can start the sorter. `python -m bridge` uses the project tenant when `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, and `AUTH0_AUDIENCE` are unset: `dev-ilye6s18ng7ernps.us.auth0.com`, client `rd4I86eUTelgHzFYI9mCdeRgAq0bAz8a`, and audience `https://sharkbyte.local/api`. Set all three together only to point at a different tenant. A partial set fails startup. No client secret is stored. `--no-auth` skips login for an offline trial.
+Opening the dashboard requires an Auth0 login before the sorter can start. A saved browser session does not skip that screen. `python -m bridge` uses the project tenant when `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, and `AUTH0_AUDIENCE` are unset: `dev-ilye6s18ng7ernps.us.auth0.com`, client `rd4I86eUTelgHzFYI9mCdeRgAq0bAz8a`, and audience `https://sharkbyte.local/api`. Set all three together only to point at a different tenant. A partial set fails startup. No client secret is stored. `--no-auth` is the only skip, and it is for an offline trial.
 
 The signed-in account needs the SharkByte Operator role (`sorter:operate`). HOME, sorting, camera selection, mock scenarios, and Gemini settings require that login. **STOP remains available without login.** State and camera-frame reads stay available.
 
-On the public Funnel port, viewers still see the dashboard and can press STOP with no login redirect. Operators can sign in with Auth0, and the password remains a backup.
+The public Funnel page requires the same Auth0 login before the sorter controls appear. STOP stays available.
 
 Allow callback and logout URLs `http://127.0.0.1:4173/` and `https://paul.tail0e5a35.ts.net/`. Allow web origins `http://127.0.0.1:4173` and `https://paul.tail0e5a35.ts.net`. Add `http://127.0.0.1:4175/` when the demo uses that port.
 
