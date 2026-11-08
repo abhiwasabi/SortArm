@@ -332,7 +332,9 @@ class Bridge:
                     or (result['confidence'] is not None and result['confidence'] < .8)):
                 self.status = 'Item needs review; no motion requested.'
                 return False
-            signature = (result['label'].casefold(), result['bin'])
+            # Bin, not the free-text name. Gemini rewords one object ("Celsius can" /
+            # "Celsius energy drink can") and a label match would sort it again.
+            signature = result['bin']
             if self.continuous_sorting and self.manual_item_in_view:
                 self.manual_item_in_view = False
                 self.last_sorted_signature = signature
