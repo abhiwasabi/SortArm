@@ -106,6 +106,8 @@ h1 { margin-bottom: 5px; font-size: clamp(23px, 2.25vw, 30px); font-weight: 720;
 .frame-fallback strong { color: var(--text); font-size: 14px; }
 .frame-fallback > span:last-child { max-width: 270px; font-size: 12px; line-height: 1.5; }
 .camera-footer { padding: 13px 3px 1px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+.swarm-check { margin: 22px 0 0; color: var(--text); font-size: 28px; line-height: 1.35; }
+.swarm-label { font-weight: 700; }
 .right-stack { min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; gap: 16px; }
 .detection-panel { display: flex; flex-direction: column; }
 .prediction-main { margin-bottom: 20px; }
@@ -460,6 +462,7 @@ body { -webkit-font-smoothing: auto; }
 .soft-badge, .runtime-mode, .history-status, .history-bin { font-size: 14px; }
 .stop-button { font-size: 16px; }
 .card-heading h2, .camera-source-heading h2 { font-size: 22px; }
+.swarm-check { font-size: 32px; }
 h1, .detail-heading h1, .settings-heading h1 { font-size: 48px; letter-spacing: 0; }
 .sidebar .logo-mark { width: 44px; height: 44px; background: transparent; border: 0; color: var(--accent); }
 .logo-mark svg { width: 44px; height: 44px; }
@@ -467,6 +470,7 @@ h1, .detail-heading h1, .settings-heading h1 { font-size: 48px; letter-spacing: 
 .nav-link .arm-nav-icon { width: 22px; height: 22px; }
 @media (max-width: 520px) {
   h1, .detail-heading h1, .settings-heading h1 { font-size: 40px; }
+  .swarm-check { font-size: 24px; }
   .topbar-title strong { font-size: 18px; }
   .runtime-mode { max-width: 95px; font-size: 12px; }
   .stop-button { font-size: 14px; }

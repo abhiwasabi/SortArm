@@ -13,9 +13,22 @@ from .envfile import load_local_env
 from .camera_devices import enable_continuity_cameras
 from .camera_sources import CameraSourceManager, Esp32SnapshotSource, validate_esp32_url
 from .core import Bridge
-from .scene_changes import SceneCadence, scene_signature
+from .scene_changes import SceneCadence, changed, scene_signature
 from .server import OperatorAuth, make_server, stop_server
 from .sort_log import SortLog
+from .swarms import review_pickup
+
+
+def _swarm_note(result):
+    if not isinstance(result, dict):
+        return None
+    held = result.get('hold_reason')
+    if isinstance(held, str) and held:
+        return 'Swarms held this item because ' + held
+    approved = result.get('approve_reason')
+    if isinstance(approved, str) and approved:
+        return 'Swarms approves this item because ' + approved
+    return None
 
 
 def main():
@@ -131,9 +144,13 @@ def main():
                 if not cadence.due(signature, time.monotonic(), ready_to_sort=ready_to_sort):
                     shutdown.wait(delay)
                     continue
+                if cadence.last_signature is not None and changed(signature, cadence.last_signature):
+                    bridge.clear_displayed_item()
                 try:
                     result = camera.predict(ticket)
                     if result is not None:
+                        result = review_pickup(result)
+                        bridge.set_swarm_note(_swarm_note(result))
                         bridge.accept_prediction(ticket, result)
                         with bridge.lock:
                             waiting_for_arm = bridge.status == 'New item detected. Waiting for the arm to finish.'

@@ -81,6 +81,7 @@ export function normalizeState(raw) {
       ? raw.camera_error.trim().slice(0, 200) : null,
     visionReady: raw.vision_ready !== false,
     status: typeof raw.status === "string" ? raw.status : "",
+    swarmCheck: typeof raw.swarm_check === "string" ? raw.swarm_check.trim().slice(0, 180) : "",
     armDetail: typeof raw.arm_detail === "string" ? raw.arm_detail : "",
     label,
     confidence,
@@ -112,12 +113,11 @@ export function derivePrediction(state, options = {}) {
       note: "Waiting for the first prediction." };
   }
   if (state.awaitingClear) {
-    const fresh = state.predictionAt !== null && now - state.predictionAt <= staleAfterMs;
-    const known = fresh && !["UNKNOWN", "EMPTY"].includes(state.label.toUpperCase());
+    const known = !["UNKNOWN", "EMPTY"].includes(state.label.toUpperCase());
     const continuous = state.simulation;
     return { kind: "completed", label: known ? state.label :
       continuous ? "Checking for a new item…" : "Checking pickup area…",
-      confidence: known ? state.confidence : null, bin: null,
+      confidence: known ? state.confidence : null, bin: known ? state.bin : null,
       note: continuous
         ? known ? "This item was sorted. Show a different item to sort it next."
           : "Waiting for a different item. The previous sort is saved in history."
@@ -132,7 +132,8 @@ export function derivePrediction(state, options = {}) {
         : state.sortingEnabled ? "Waiting for Gemini. Keep one item clearly visible."
         : state.status || "Start sorting to request a classification." };
   }
-  if (state.predictionAt !== null && now - state.predictionAt > staleAfterMs) {
+  const namedItem = !["UNKNOWN", "EMPTY"].includes(state.label.toUpperCase());
+  if (!namedItem && state.predictionAt !== null && now - state.predictionAt > staleAfterMs) {
     return { kind: "stale", label: "No current item", confidence: null, bin: null,
       note: "The last prediction is old. Waiting for a new camera result." };
   }

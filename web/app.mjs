@@ -47,6 +47,8 @@ const ui = {
   frameFallback: byId("frameFallback"),
   itemLabel: byId("itemLabel"),
   predictionNote: byId("predictionNote"),
+  swarmCheck: byId("swarmCheck"),
+  swarmCheckText: byId("swarmCheckText"),
   confidenceValue: byId("confidenceValue"),
   confidenceMeter: byId("confidenceMeter"),
   confidenceFill: byId("confidenceFill"),
@@ -355,6 +357,12 @@ function renderManualSort(bridgeAvailable) {
   for (const button of manualButtons) button.disabled = !enabled;
 }
 
+function swarmCheckCopy(note) {
+  if (typeof note !== "string" || !note.trim()) return "Waiting for an item.";
+  const sentence = note.replace(/^Swarms\s+/, "");
+  return sentence.charAt(0).toUpperCase() + sentence.slice(1);
+}
+
 function render() {
   renderOperator();
   if (!previewMode && cameraOnline && (lastFrameAt === null || Date.now() - lastFrameAt > FRAME_STALE_MS)) {
@@ -379,6 +387,9 @@ function render() {
   });
   ui.itemLabel.textContent = prediction.label;
   ui.predictionNote.textContent = prediction.note;
+  const swarmText = swarmCheckCopy(snapshot?.swarmCheck);
+  ui.swarmCheck.hidden = previewMode || !backendOnline;
+  ui.swarmCheckText.textContent = swarmText;
   const percent = prediction.confidence === null ? null : Math.round(prediction.confidence * 100);
   ui.confidenceValue.textContent = percent === null ? "—" : percent + "%";
   ui.confidenceFill.style.width = percent === null ? "0%" : percent + "%";

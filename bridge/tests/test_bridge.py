@@ -123,6 +123,9 @@ class BridgeTests(unittest.TestCase):
         self.assertTrue(self.result())
         metal = prediction(label='Metal can', bin='METAL')
         self.assertFalse(self.result(metal))
+        self.assertEqual(self.bridge.snapshot()['label'], 'Plastic bottle')
+        self.now += 5
+        self.bridge.camera_frame((b'still', 'image/jpeg'))
         self.assertEqual(self.bridge.snapshot()['label'], 'Metal can')
         self.assertFalse(self.bridge.snapshot()['awaiting_clear'])
         self.assertEqual(self.arm.commands, ['PLASTIC'])
@@ -391,6 +394,58 @@ class BridgeTests(unittest.TestCase):
         self.bridge.camera_frame((b'new', 'image/jpeg'))
         self.assertFalse(self.bridge.accept_prediction(ticket, prediction()))
         self.assertIsNone(self.bridge.snapshot()['prediction_at'])
+
+    def test_named_item_stays_visible_while_the_camera_is_live(self):
+        self.assertTrue(self.result())
+        self.now += 20
+        self.bridge.camera_frame((b'still there', 'image/jpeg'))
+        snap = self.bridge.snapshot()
+        self.assertEqual(snap['label'], 'Plastic bottle')
+        self.assertEqual(snap['bin'], 'PLASTIC')
+
+    def test_empty_pickup_keeps_the_detection_for_five_seconds(self):
+        self.bridge.set_swarm_note('Swarms approves this item because it is dry')
+        self.assertTrue(self.result())
+        self.result(prediction(label='EMPTY', bin=None, item_present=False))
+        snap = self.bridge.snapshot()
+        self.assertEqual(snap['label'], 'Plastic bottle')
+        self.assertEqual(snap['bin'], 'PLASTIC')
+        self.assertEqual(snap['swarm_check'], 'Swarms approves this item because it is dry')
+        self.now += 5
+        self.bridge.camera_frame((b'gone', 'image/jpeg'))
+        snap = self.bridge.snapshot()
+        self.assertEqual(snap['label'], 'UNKNOWN')
+        self.assertIsNone(snap['bin'])
+        self.assertIsNone(snap['swarm_check'])
+        self.assertIsNone(snap['prediction_at'])
+        self.assertTrue(self.bridge.enabled)
+
+    def test_scene_change_cannot_replace_a_detection_before_five_seconds(self):
+        self.bridge.set_swarm_note('Swarms approves this item because it is dry')
+        self.assertTrue(self.result())
+        self.bridge.clear_displayed_item()
+        self.now += 1
+        self.result(prediction(label='Metal can', bin='METAL'))
+        snap = self.bridge.snapshot()
+        self.assertEqual(snap['label'], 'Plastic bottle')
+        self.assertEqual(snap['bin'], 'PLASTIC')
+        self.assertEqual(snap['swarm_check'], 'Swarms approves this item because it is dry')
+        self.now += 5
+        self.bridge.camera_frame((b'next', 'image/jpeg'))
+        snap = self.bridge.snapshot()
+        self.assertEqual(snap['label'], 'Metal can')
+        self.assertEqual(snap['bin'], 'METAL')
+        self.assertTrue(self.bridge.enabled)
+
+    def test_clearing_the_display_keeps_sorting_armed(self):
+        self.bridge.set_swarm_note('Swarms approves this item because it is dry')
+        self.assertTrue(self.result())
+        self.now += 5
+        self.bridge.clear_displayed_item()
+        snap = self.bridge.snapshot()
+        self.assertEqual(snap['label'], 'UNKNOWN')
+        self.assertIsNone(snap['swarm_check'])
+        self.assertTrue(self.bridge.enabled)
 
     def test_simulation_can_accept_slow_result_with_fresh_camera(self):
         self.bridge.prediction_max_age = 30
