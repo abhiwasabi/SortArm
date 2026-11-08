@@ -19,6 +19,14 @@ class GeminiTests(unittest.TestCase):
         self.assertEqual(config['thinkingConfig'], {'thinkingLevel': 'MINIMAL'})
         self.assertEqual(config['mediaResolution'], 'MEDIA_RESOLUTION_LOW')
 
+    def test_gemini_38_flash_uses_low_thinking(self):
+        raw = dict(label='Plastic bottle', item_present=True, needs_review=False, bin='PLASTIC')
+        with patch('urllib.request.urlopen', return_value=self.response(raw)) as request:
+            GeminiPredictor(key='test-key', model='gemini-3.8-flash').predict((b'jpeg', 'image/jpeg'))
+        config = json.loads(request.call_args.args[0].data)['generationConfig']
+        self.assertEqual(config['thinkingConfig'], {'thinkingLevel': 'LOW'})
+        self.assertNotIn('mediaResolution', config)
+
     def test_cloud_image_is_smaller_without_changing_preview(self):
         try:
             import cv2
@@ -48,9 +56,36 @@ class GeminiTests(unittest.TestCase):
         self.assertEqual(payload['generationConfig']['responseMimeType'], 'application/json')
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-only-key', 'GEMINI_MODEL': 'test-model'})
-    def test_incomplete_and_policy_mismatched_responses_are_rejected(self):
-        raw = dict(label='Plastic bottle', item_present=True, needs_review=False, bin='PAPER')
-        for response in (self.response(raw), self.response(raw, finish='MAX_TOKENS')):
+    def test_named_objects_keep_a_dominant_material_bin(self):
+        cases = (
+            ('Cracker Jack bag', 'PLASTIC'),
+            ('cardboard shipping box', 'PAPER'),
+            ('aluminum soda can', 'METAL'),
+            ('apple core', 'ORGANIC'),
+        )
+        for label, bin_name in cases:
+            raw = dict(label=label, item_present=True, needs_review=False, bin=bin_name)
+            with patch('urllib.request.urlopen', return_value=self.response(raw)) as request:
+                result = GeminiPredictor().predict((b'jpeg', 'image/jpeg'))
+            self.assertEqual((result['label'], result['bin']), (label, bin_name))
+            prompt = json.loads(request.call_args.args[0].data)['contents'][0]['parts'][0]['text']
+            schema = json.loads(request.call_args.args[0].data)['generationConfig']['responseSchema']
+        self.assertNotIn('enum', schema['properties']['label'])
+        for rule in ('Cracker Jack bag', 'PAPER', 'PLASTIC', 'METAL', 'ORGANIC', 'clearly dominant'):
+            self.assertIn(rule, prompt)
+
+    @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-only-key', 'GEMINI_MODEL': 'test-model'})
+    def test_a_named_object_without_a_bin_is_rejected(self):
+        raw = dict(label='glass jar', item_present=True, needs_review=False, bin=None)
+        with patch('urllib.request.urlopen', return_value=self.response(raw)):
+            with self.assertRaises(ValueError):
+                GeminiPredictor().predict((b'jpeg', 'image/jpeg'))
+
+    @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-only-key', 'GEMINI_MODEL': 'test-model'})
+    def test_incomplete_and_unclear_binned_responses_are_rejected(self):
+        unclear = dict(label='UNKNOWN', item_present=True, needs_review=True, bin='PLASTIC')
+        named = dict(label='Cracker Jack bag', item_present=True, needs_review=False, bin='PLASTIC')
+        for response in (self.response(unclear), self.response(named, finish='MAX_TOKENS')):
             with patch('urllib.request.urlopen', return_value=response):
                 with self.assertRaises(ValueError):
                     GeminiPredictor().predict((b'jpeg', 'image/jpeg'))

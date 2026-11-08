@@ -48,7 +48,7 @@ Change these only after posting on the Message Board and getting agreement from 
 
 ### Vision → bridge (#14 → #16)
 
-The vision step returns `label` (string), `confidence` (0–1, may be absent), and `bin`: one of `"PAPER"`, `"PLASTIC"`, `"METAL"`, `"ORGANIC"` (issue #23), or `None`. With no detection or low confidence it returns `label="UNKNOWN"` and `bin=None`. The model (YOLO or Gemini) is still being settled in #14/#16. Demo items, one or more per bin, are not chosen or measured yet.
+The vision step returns `label` (a short free-text object name, `EMPTY`, or `UNKNOWN`), `confidence` (0–1, may be absent), and `bin`: one of `"PAPER"`, `"PLASTIC"`, `"METAL"`, `"ORGANIC"` (issue #23), or `None`. Gemini names one prominent object and sets `bin` from its dominant material. Glass, mixed materials, more than one item, or an unclear view returns `needs_review` and `bin=None`. The arm still sorts only when `bin` is one of the four names.
 
 ### Bridge → arm (#16 → #20)
 

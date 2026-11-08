@@ -31,7 +31,8 @@ def connect_gemini(manager, body):
     def rank(name):
         version = re.search(r'gemini-(\d+)\.(\d+)', name)
         version = tuple(-int(v) for v in version.groups()) if version else (0, 0)
-        return ('lite' not in name, 'latest' in name, version, name)
+        # Prefer Gemini 3.8 Flash, then other full Flash models, then lite.
+        return (name != 'gemini-3.8-flash', 'lite' in name, 'latest' in name, version, name)
     if not model:
         candidates.sort(key=rank)
     if not candidates:
