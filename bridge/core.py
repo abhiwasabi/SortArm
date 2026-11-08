@@ -34,8 +34,12 @@ def validate_prediction(raw):
 class Bridge:
     def __init__(self, arm, *, simulation=False, mock_camera=False, mock_available=None,
                  camera_source=None, camera_url=None, camera_index=0, vision_ready=True,
-                 allowed_bins=BINS, clock=time.monotonic, max_age=8, prediction_max_age=8):
+                 allowed_bins=BINS, clock=time.monotonic, max_age=8, prediction_max_age=8,
+                 sort_log=None):
         self.arm = arm
+        # Optional SortLog (bridge/sort_log.py). emit() only enqueues, so it is safe under the lock.
+        self.sort_log = sort_log
+        self.stop_sort_id = None
         self.allowed_bins = tuple(allowed_bins)
         self.pending_sort = None
         self.recent_sorts = []
@@ -78,14 +82,45 @@ class Bridge:
                 record = self.pending_sort
                 self.pending_sort = None
                 self.counts[record['bin']] += 1
-                self.recent_sorts.insert(0, dict(record, completed_at=datetime.now(timezone.utc).isoformat()))
+                completed_at = datetime.now(timezone.utc)
+                self.recent_sorts.insert(0, dict(id=record['id'], label=record['label'], bin=record['bin'],
+                                                 completed_at=completed_at.isoformat()))
                 del self.recent_sorts[20:]
+                self._log_sort(record, 'DONE', completed_at)
             elif state == 'ERROR':
+                record = self.pending_sort
+                if record is not None:
+                    # Every STOP reports ERROR; a sort only counts as STOPPED if STOP was requested for it.
+                    stopped = (record['id'] == self.stop_sort_id
+                               or str(detail or '').lower().startswith('stopped'))
+                    self._log_sort(record, 'STOPPED' if stopped else 'FAULT',
+                                   datetime.now(timezone.utc), detail)
+                self.stop_sort_id = None
                 self.pending_sort = None
                 self.enabled = False
                 self.auto_sort_armed = False
                 self.home_confirmed = False
                 self.invalidate('Arm needs attention: ' + str(detail))
+
+    def _begin_sort(self, label, bin_name, confidence=None):
+        # Caller holds lock. One place to create pending_sort, so every path records its start time.
+        self.pending_sort = dict(id=str(uuid.uuid4()), label=label, bin=bin_name,
+                                 confidence=confidence, started_at=self.clock())
+        return self.pending_sort
+
+    def _log_sort(self, record, outcome, at, detail=None):
+        # Caller holds lock. Only enqueues; a logging failure must never affect sorting.
+        if self.sort_log is None:
+            return
+        try:
+            started = record.get('started_at')
+            self.sort_log.emit(dict(
+                time=at, sort_id=record['id'], label=record['label'], bin=record['bin'],
+                confidence=record.get('confidence'), outcome=outcome,
+                cycle_s=None if started is None else max(0.0, self.clock() - started),
+                simulated=self.simulation, detail=None if detail is None else str(detail)[:200]))
+        except Exception:
+            pass
 
     def invalidate(self, message):
         # Caller holds lock. In-flight model results can no longer act.
@@ -194,6 +229,8 @@ class Bridge:
             self.enabled = False
             self.auto_sort_armed = False
             self.home_confirmed = False
+            if self.pending_sort is not None:
+                self.stop_sort_id = self.pending_sort['id']
             self.invalidate('STOP requested. Home the arm before resuming.')
         # Never wait for a worker callback while holding the bridge lock.
         return self.arm.stop()
@@ -261,7 +298,7 @@ class Bridge:
             if self.arm.state != 'READY' or self.pending_sort is not None:
                 self.status = 'New item detected. Waiting for the arm to finish.'
                 return False
-            self.pending_sort = dict(id=str(uuid.uuid4()), label=result['label'], bin=result['bin'])
+            self._begin_sort(result['label'], result['bin'], result['confidence'])
             accepted = self.arm.sort(result['bin'])
             if accepted:
                 self.awaiting_clear = True

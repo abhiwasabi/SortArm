@@ -3,3 +3,5 @@ opencv-python>=4.10,<5
 cv2-enumerate-cameras>=1.4,<2
 # camera_devices.py uses Foundation to expose macOS Continuity Camera devices.
 pyobjc-framework-Cocoa>=10,<14; sys_platform == "darwin"
+# Optional Tiger Data sort log (#47); only imported when TIGER_DATABASE_URL is set.
+psycopg[binary]>=3.2,<4

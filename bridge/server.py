@@ -5,7 +5,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -66,6 +66,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(200, gemini_status(self.camera_manager))
         if path == '/api/state':
             return self.send_json(200, self.bridge.snapshot())
+        if path == '/api/sort-history':
+            return self.send_sort_history()
         if path == '/api/frame.jpg':
             with self.bridge.lock:
                 frame = self.bridge.frame if self.bridge.fresh_frame() else None
@@ -76,6 +78,28 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(404, {'error': 'Unknown endpoint'})
         # Static serving is rooted in web/, never the repository or its credentials.
         super().do_GET()
+
+    def send_sort_history(self):
+        # Read-only Tiger Data summary (#47). Never touches the bridge lock or the arm.
+        sort_log = getattr(self.bridge, 'sort_log', None)
+        if sort_log is None:
+            return self.send_json(200, {'enabled': False})
+        query = parse_qs(urlsplit(self.path).query)
+        try:
+            minutes = int((query.get('minutes') or ['60'])[0])
+        except ValueError:
+            return self.send_json(400, {'error': 'minutes must be a whole number'})
+        # One mode at a time; by default the mode this bridge runs in, so a physical demo never
+        # shows simulated cycles and a mock run never claims physical drops.
+        mode = (query.get('mode') or ['simulated' if self.bridge.simulation else 'physical'])[0]
+        if mode not in ('simulated', 'physical'):
+            return self.send_json(400, {'error': 'mode must be simulated or physical'})
+        try:
+            return self.send_json(200, sort_log.history(minutes, simulated=mode == 'simulated'))
+        except Exception:
+            # Never echo database errors: they can include the host or user name.
+            return self.send_json(200, {'enabled': True, 'ok': False,
+                                        'error': 'Tiger Data is unreachable. Sorting is unaffected.'})
 
     def do_POST(self):
         origin = self.headers.get('Origin')

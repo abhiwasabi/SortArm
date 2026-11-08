@@ -7,6 +7,7 @@
   <meta name="description" content="Local dashboard for the robotic waste sorter.">
   <title>Sort Arm · Dashboard</title>
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./tiger.css">
   <link rel="stylesheet" href="./auth0.css">
   <script type="module" src="./auth0.mjs"></script>
   <script type="module" src="./app.mjs"></script>
@@ -104,6 +105,24 @@
             <p id="historyMessage" class="history-message">Waiting for completed sorts.</p>
             <ol id="sortHistory" class="history-list" role="list" hidden></ol>
             <p id="historyAnnouncement" class="sr-only" role="status" aria-live="polite"></p>
+          </section>
+          <section class="tiger-history" aria-labelledby="tigerTitle">
+            <div class="history-heading"><div><p class="small-label">TIGER DATA</p><h3 id="tigerTitle">Sort history</h3></div><span id="tigerStatus" class="history-status" data-tone="waiting">CHECKING</span></div>
+            <p id="tigerMessage" class="history-message">Checking the Tiger Data sort log.</p>
+            <div id="tigerBody" class="tiger-body" hidden>
+              <p id="tigerSimulated" class="tiger-note" hidden></p>
+              <div class="tiger-stats">
+                <div class="tiger-stat"><span>Completed</span><strong id="tigerCompleted">0</strong></div>
+                <div class="tiger-stat" data-kind="stopped"><span>Stopped</span><strong id="tigerStopped">0</strong></div>
+                <div class="tiger-stat" data-kind="fault"><span>Faults</span><strong id="tigerFaults">0</strong></div>
+                <div class="tiger-stat"><span title="Average completed-sort cycle over the last 60 minutes">Avg cycle</span><strong id="tigerCycle">—</strong></div>
+              </div>
+              <p class="tiger-note">Completed, Stopped, and Faults are all-time totals. Avg cycle, the chart, and the bin bars cover the last 60 minutes.</p>
+              <div class="tiger-panel"><h4>Completed sorts per minute<small>last 60 min</small></h4><div class="tiger-chart"><div id="tigerMinutes"></div><span id="tigerTooltip" class="tiger-tooltip" role="status" hidden></span></div></div>
+              <div class="tiger-panel"><h4>By bin<small>last 60 min</small></h4><ul id="tigerBins" class="tiger-bins" role="list"></ul></div>
+              <div class="tiger-panel"><h4>Latest in the database</h4><p id="tigerRecentEmpty" class="tiger-note">No sorts recorded yet.</p><ol id="tigerRecent" class="history-list" role="list"></ol></div>
+              <p id="tigerSource" class="tiger-note"></p>
+            </div>
           </section>
         </section>
       </div>
@@ -225,5 +244,6 @@
 </script>
 <script type="module" src="./gemini.mjs"></script>
 <script type="module" src="./cameras.mjs"></script>
+<script type="module" src="./tiger.mjs"></script>
 </body>
 </html>
