@@ -698,6 +698,7 @@ test('history shows confirmed sorts once across repeated polls and prediction ch
   await h.respond(0, state);
   const list = h.element('sortHistory');
   assert.equal(h.element('historyStatus').textContent, 'LIVE');
+  assert.equal(h.element('sortToast').textContent ?? '', '');
   assert.equal(list.children.length, 4);
   assert.deepEqual(list.children.map(row => row.children[2].textContent),
     ['Paper bin', 'Plastic bin', 'Metal bin', 'Organic bin']);
@@ -718,7 +719,10 @@ test('history shows confirmed sorts once across repeated polls and prediction ch
   await nextPoll;
   assert.equal(list.children.length, 5);
   assert.equal(list.children[0].children[1].textContent, 'Newspaper');
-  assert.match(h.element('historyAnnouncement').textContent, /Newspaper sorted into Paper bin/);
+  assert.match(h.element('historyAnnouncement').textContent, /Newspaper was sorted to Paper/);
+  assert.equal(h.element('sortToast').hidden, false);
+  assert.equal(h.element('sortToast').dataset.bin, 'PAPER');
+  assert.equal(h.element('sortToast').textContent, 'Newspaper was sorted to Paper');
 });
 
 test('history distinguishes absent records from API loss', async () => {
@@ -741,4 +745,20 @@ test('Start camera cannot fall back to index zero when the selected iPhone is un
   await h.element('toggleCameraButton').listeners.click();
   assert.equal(h.requests.length,1);
   assert.match(h.element('notice').textContent,/unavailable or still being detected/);
+});
+
+test('Start camera shows the simulated camera when the iPhone is not connected', async () => {
+  const h = harness();
+  await h.respond(0, {...sample, camera_source:'off', sorting_enabled:false, mock_available:true});
+  h.element('cameraSourceSelect').value='iphone';
+  h.element('usbCameraDevice').value='';
+  const start = h.element('toggleCameraButton').listeners.click();
+  assert.equal(h.requests[1].url, '/api/camera');
+  assert.equal(JSON.parse(h.requests[1].options.body).source, 'mock');
+  assert.equal(JSON.parse(h.requests[1].options.body).index, undefined);
+  await h.respond(1, {accepted:true, state:{...sample, sorting_enabled:false, mock_available:true,
+    mock_camera:true, camera_source:'mock'}});
+  await start;
+  assert.match(h.element('notice').textContent, /iPhone not detected. Showing the simulated camera/);
+  assert.equal(h.element('cameraSourceSelect').value, 'mock');
 });

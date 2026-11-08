@@ -326,6 +326,18 @@ class DashboardServer(ThreadingHTTPServer):
     daemon_threads = True
     block_on_close = False
 
+    def serve_forever(self, poll_interval=0.05):
+        # Wake often enough to deliver a camera that connects while a request waits.
+        super().serve_forever(poll_interval)
+
+    def service_actions(self):
+        from .camera_devices import pump_camera_notifications
+        try:
+            pump_camera_notifications()
+        except Exception:
+            pass
+        super().service_actions()
+
     def handle_error(self, request, client_address):
         if isinstance(sys.exc_info()[1], (TimeoutError, socket.timeout)):
             return

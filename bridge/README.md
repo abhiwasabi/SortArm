@@ -79,7 +79,7 @@ Also configure Gemini as above. Paul must first verify the ST3215-HS motor model
 
 ## Optional Tiger Data sort log (#47)
 
-Off unless `TIGER_DATABASE_URL` is set. When set, the bridge records each sort's outcome in a `sort_events` table (a TimescaleDB hypertable on Tiger Cloud):
+Off unless `TIGER_DATABASE_URL` is set. `python -m bridge` loads a gitignored `.env` in the repo root first and does not override variables already set in the shell. When the URL is set, the bridge records each sort's outcome in a `sort_events` table (a TimescaleDB hypertable on Tiger Cloud):
 
 ```sh
 .venv/bin/python -m pip install -r bridge/requirements.txt   # includes psycopg

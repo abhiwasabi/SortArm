@@ -9,6 +9,8 @@ import urllib.error
 
 from .adapters import Camera, GeminiPredictor, prediction_error_message
 from .auth0_operator import Auth0Config, Auth0Verifier
+from .envfile import load_local_env
+from .camera_devices import enable_continuity_cameras
 from .camera_sources import CameraSourceManager, Esp32SnapshotSource, validate_esp32_url
 from .core import Bridge
 from .scene_changes import SceneCadence, scene_signature
@@ -17,6 +19,8 @@ from .sort_log import SortLog
 
 
 def main():
+    load_local_env()
+    enable_continuity_cameras()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--mock', action='store_true', help='Simulate both camera and arm; no cloud calls')
     parser.add_argument('--mock-arm', action='store_true', help='Real camera/Gemini, simulated arm')
