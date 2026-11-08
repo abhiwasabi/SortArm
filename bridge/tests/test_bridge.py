@@ -136,6 +136,16 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(self.bridge.counts['METAL'], 1)
         self.assertFalse(self.result(metal))
 
+    def test_reworded_name_does_not_sort_the_same_item_again(self):
+        self.assertTrue(self.result(prediction(label='Celsius can', bin='METAL')))
+        self.arm.finish()
+        self.assertFalse(self.result(prediction(label='Celsius energy drink can', bin='METAL')))
+        self.assertEqual(self.bridge.status, 'Already sorted this item. Show a different item.')
+        self.assertEqual(self.arm.commands, ['METAL'])
+        self.assertTrue(self.result(prediction(label='Wellsley Farms water bottle', bin='PLASTIC')))
+        self.arm.finish()
+        self.assertEqual(self.arm.commands, ['METAL', 'PLASTIC'])
+
     def test_physical_mode_still_requires_explicit_start_and_clear(self):
         arm = FakeArm()
         bridge = Bridge(arm, simulation=False, clock=lambda: self.now)
