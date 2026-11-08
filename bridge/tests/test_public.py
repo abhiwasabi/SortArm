@@ -541,7 +541,7 @@ class PublicStartupTests(unittest.TestCase):
             bridge_main()
         calls = servers.call_args_list
         auth0.assert_called_once_with(FakeAuth0.config)
-        self.assertIs(calls[0].kwargs['auth'], False)
+        self.assertIs(calls[0].kwargs['auth'], verifier)
         self.assertIs(calls[1].kwargs['auth'], verifier)
         self.assertIs(calls[0].args[0].sort_log, sort_log.return_value)
         sort_log.return_value.close.assert_called_once()
@@ -564,6 +564,7 @@ class PublicStartupTests(unittest.TestCase):
         arm.close.assert_called_once()
         camera.return_value.close.assert_called_once()
         self.assertIn('Dashboard: http://127.0.0.1:4173', stdout.getvalue())
+        self.assertIn('Auth0 login is required before operating the dashboard.', stdout.getvalue())
         self.assertIn('Sort log: writing sort outcomes to Tiger Data', stdout.getvalue())
         self.assertIn('Public port for Funnel only: http://127.0.0.1:4174 -> https://sorter.ts.net', stdout.getvalue())
         self.assertNotIn('test-password', stdout.getvalue())

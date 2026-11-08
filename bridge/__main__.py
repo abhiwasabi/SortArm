@@ -25,6 +25,8 @@ def main():
     parser.add_argument('--public-host', help='Funnel hostname, e.g. sorter.tail1234.ts.net')
     parser.add_argument('--camera', type=int, default=0)
     parser.add_argument('--esp32-url', help='Local HTTP JPEG snapshot URL, e.g. http://192.168.1.50/capture')
+    parser.add_argument('--no-auth', action='store_true',
+                        help='Skip Auth0. For offline trials only; the demo requires login.')
     args = parser.parse_args()
     operator_auth = None
     if args.public_port is not None:
@@ -37,7 +39,7 @@ def main():
         operator_auth = OperatorAuth(password)
         del password
     auth0 = None
-    if args.public_port is not None:
+    if not args.no_auth:
         try:
             auth0 = Auth0Verifier(Auth0Config.for_runtime())
         except (ValueError, RuntimeError) as exc:
@@ -165,9 +167,9 @@ def main():
     public_thread = None
     binding_port = args.port
     try:
-        # Localhost stays open even when Auth0 variables are set. auth=False
-        # stops make_server from building a verifier out of the environment.
-        server = make_server(bridge, web, args.port, camera_manager=camera, auth=False)
+        # auth=False is the offline-trial opt-out. The demo passes the verifier.
+        server = make_server(bridge, web, args.port, camera_manager=camera,
+                             auth=False if args.no_auth else auth0)
         if args.public_port is not None:
             binding_port = args.public_port
             public_server = make_server(bridge, web, args.public_port, camera_manager=camera, auth=auth0,
@@ -179,10 +181,11 @@ def main():
         for worker in workers:
             worker.start()
         print(f'Dashboard: http://127.0.0.1:{server.server_port}', flush=True)
+        if not args.no_auth:
+            print('Auth0 login is required before operating the dashboard. STOP stays available.', flush=True)
         if public_server is not None:
             print(f'Public port for Funnel only: http://127.0.0.1:{public_server.server_port}'
                   f' -> https://{args.public_host}', flush=True)
-            print('Auth0 operator login is required on the public site. The local dashboard stays open.', flush=True)
         print('SIMULATED ARM' if mock_arm else 'PHYSICAL ARM: verify calibration, taught poses, and power cutoff.', flush=True)
         if predictor is None:
             print('Gemini is not configured; live cameras can preview, but sorting is disabled.', flush=True)

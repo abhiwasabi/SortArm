@@ -60,7 +60,7 @@ tailscale funnel status        # should now show nothing
 
 ## Auth0 on the public link
 
-Auth0 adds a second way to become an operator on the public site: sign in with Auth0 **or** use the operator password. Viewers and STOP work exactly as before, with no login redirect. The laptop dashboard on port 4173 never requires Auth0.
+Auth0 login is required before the sorter can start, on the laptop dashboard and on the public link. A saved browser session does not skip the login screen. STOP stays available without that login. `--no-auth` skips Auth0 for an offline trial only.
 
 The public server uses the project tenant when the three variables below are unset: domain `dev-ilye6s18ng7ernps.us.auth0.com`, client `rd4I86eUTelgHzFYI9mCdeRgAq0bAz8a`, audience `https://sharkbyte.local/api`. Install the verifier dependency once:
 

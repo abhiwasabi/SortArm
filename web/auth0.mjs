@@ -17,8 +17,8 @@ let authReady;
 
 function showGate(message, authenticated = false) {
   authGate.hidden = authenticated || !authEnabled;
-  // Public viewers always see the dashboard. Local Auth0 still covers it until sign-in.
-  content.hidden = publicViewer ? false : authEnabled && !authenticated;
+  // The sorter stays covered until this page has an Auth0 login. STOP sits outside this content.
+  content.hidden = authEnabled && !authenticated;
   authBar.hidden = !authEnabled || !authenticated;
   authSignIn.hidden = authenticated;
   authGateSignOut.hidden = true;
@@ -53,6 +53,7 @@ async function initializeAuth() {
   authClient = await window.auth0.createAuth0Client({
     domain: config.domain,
     clientId: config.clientId,
+    cacheLocation: 'memory',
     authorizationParams: {redirect_uri: location.origin + '/', audience: config.audience}
   });
   const query = new URLSearchParams(location.search);
@@ -76,18 +77,19 @@ async function initializeAuth() {
     authIdentity.textContent = user?.name || user?.email || 'Operator';
     showGate('', true);
   } else {
-    showGate(publicViewer
-      ? 'Sign in with Auth0 to control the sorter. Viewing and STOP need no login.'
-      : 'Sign in to control the sorter. STOP remains available.');
+    showGate('Auth0 login is required before starting. STOP remains available.');
+    await startLogin();
   }
 }
 
-authSignIn.addEventListener('click', async () => {
+async function startLogin() {
   if (!authClient) return;
   authSignIn.disabled = true;
-  try { await authClient.loginWithRedirect(); }
+  try { await authClient.loginWithRedirect({authorizationParams: {prompt: 'login'}}); }
   catch { authMessage.textContent = 'Sign in could not start. Try again.'; authSignIn.disabled = false; }
-});
+}
+
+authSignIn.addEventListener('click', () => startLogin());
 authSignOut.addEventListener('click', () => {
   if (authClient) authClient.logout({logoutParams: {returnTo: location.origin + '/'}});
 });
