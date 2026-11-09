@@ -1,6 +1,6 @@
 # Robotic Waste Sorter — SharkByte 2026
 
-A 3D printed robotic arm is being built to sort demo items into four labeled bins: **Paper, Plastic, Metal, and Organic**. A fixed camera observes one item in a marked pickup area. The laptop handles the vision decision and controls the planned SO-101 arm over its USB servo adapter. The ESP32-S3 may serve as a physical stop/status accessory. Read [PLAN.md](PLAN.md) for the current scope, build order, and demo plan.
+A 3D printed robotic arm is being built to sort demo items into two labeled bins: **Plastic and Metal**. A fixed camera observes one item in a marked pickup area. The laptop handles the vision decision and controls the planned SO-101 arm over its USB servo adapter. The ESP32-S3 may serve as a physical stop/status accessory. Read [PLAN.md](PLAN.md) for the current scope, build order, and demo plan.
 
 This is a hackathon prototype, not a general material classifier. Four-bin physical routing still needs taught arm poses and testing; hardware progress is tracked in #12 and #20. Team ownership and assigned issues are in [PLAN.md](PLAN.md).
 
